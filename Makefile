@@ -15,7 +15,7 @@ REQ_CFLAGS = -std=c99 -Wall -Wextra -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L 
 REQ_LDFLAGS = -Wl,--gc-sections
 LIBS = -lX11
 
-CORE = src/buf.c src/rencode.c src/lz4.c src/sha256.c src/cursor.c
+CORE = src/buf.c src/rencode.c src/lz4.c src/sha256.c src/cursor.c src/webp.c
 SRCS = $(CORE) src/net.c src/client.c src/x11.c src/main.c
 TESTS = tests/test_core
 

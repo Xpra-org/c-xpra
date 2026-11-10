@@ -64,4 +64,5 @@ rpmbuild --define "source_sha256 $(sha256sum ~/rpmbuild/SOURCES/c-xpra-0.1.0.tar
 * **There is no desktop entry.** `c-xpra` has no connection dialog and needs a target
   argument, so a menu launcher would only print its usage.
 * The only runtime dependency is libX11, found by the automatic dependency generators
-  (`dh_shlibdeps`, rpm's ELF dependency generator).
+  (`dh_shlibdeps`, rpm's ELF dependency generator). libXcursor (colour cursors) and libwebp
+  (`webp` pictures) are optional and loaded with `dlopen`, so the generators do not see them.

@@ -8,6 +8,7 @@
 #include "lz4.h"
 #include "rencode.h"
 #include "sha256.h"
+#include "webp.h"
 
 static int failures;
 
@@ -407,6 +408,50 @@ static void test_cursor(void)
 	buf_free(&b);
 }
 
+static void test_webp(void)
+{
+	if (!webp_available()) {
+		printf("libwebp not found, skipping the webp tests\n");
+		return;
+	}
+	uint8_t data[128];
+	size_t len;
+	int w = 0, h = 0;
+	/* 3x2 lossless: red, green, blue / white, black, #123456 */
+	unhex("524946463a000000574542505650384c2e0000002f024000002f20102088f29f66432090e4b03feb0201824aff25e63f40"
+	      "6c726c152848db80c5dd53b288fec7d501", data, &len);
+	uint8_t *px = webp_decode(data, len, 3, 2, &w, &h);
+	static const uint8_t bgra[] = {
+		0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255,
+		255, 255, 255, 255, 0, 0, 0, 255, 86, 52, 18, 255,
+	};
+	CHECK(px && w == 3 && h == 2 && !memcmp(px, bgra, sizeof(bgra)));
+	free(px);
+	/* larger than the draw area */
+	CHECK(!webp_decode(data, len, 2, 2, &w, &h));
+	CHECK(!webp_decode(data, len, 3, 1, &w, &h));
+	/* truncated, corrupted */
+	CHECK(!webp_decode(data, 20, 3, 2, &w, &h));
+	data[40] ^= 0xff;
+	px = webp_decode(data, len, 3, 2, &w, &h);
+	CHECK(!px || (w == 3 && h == 2));
+	free(px);
+	CHECK(!webp_decode((const uint8_t *)"not a webp file", 15, 100, 100, &w, &h));
+
+	/* 16x8 lossy, a solid #c86432 */
+	unhex("524946463e000000574542505650382032000000d001009d012a1000080000c01225a00274ba01f80003b000feda26ffee"
+	      "f37ed3d7b4f5fd4cfff8ca9f203fe32a7fc5cc0000", data, &len);
+	px = webp_decode(data, len, 16, 8, &w, &h);
+	CHECK(px && w == 16 && h == 8);
+	if (px) {
+		int close = 1;
+		for (int i = 0; i < 16 * 8 * 4; i += 4)
+			close &= abs(px[i] - 50) < 8 && abs(px[i + 1] - 100) < 8 && abs(px[i + 2] - 200) < 8 && px[i + 3] == 255;
+		CHECK(close);
+	}
+	free(px);
+}
+
 int main(void)
 {
 	test_rencode_ints();
@@ -418,6 +463,7 @@ int main(void)
 	test_lz4();
 	test_sha256();
 	test_cursor();
+	test_webp();
 	if (failures) {
 		fprintf(stderr, "%d failure(s)\n", failures);
 		return 1;

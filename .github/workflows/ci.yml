@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libx11-dev
+          sudo apt-get install -y --no-install-recommends libx11-dev libwebp7
 
       # The build must stay free of warnings.
       - name: Build

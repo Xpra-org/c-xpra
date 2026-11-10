@@ -18,6 +18,7 @@
 #include "rencode.h"
 #include "sha256.h"
 #include "lz4.h"
+#include "webp.h"
 
 #define PROTOCOL_MAJOR 8
 #define PROTOCOL_MINOR 0
@@ -142,8 +143,12 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	static const char *const encoders[] = { "rencodeplus", NULL };
 	static const char *const compressors[] = { "lz4", "none", NULL };
 	static const char *const digests[] = { AUTH_DIGEST, NULL };
-	static const char *const enc_options[] = { "rgb", NULL };
-	static const char *const enc_core[] = { "rgb24", "rgb32", NULL };
+	/* webp is only advertised when libwebp can be loaded */
+	const char *enc_options[] = { "rgb", "webp", NULL };
+	const char *enc_core[] = { "rgb24", "rgb32", "webp", NULL };
+	int webp = webp_available();
+	if (!webp)
+		enc_options[1] = enc_core[2] = NULL;
 	static const char *const rgb_formats[] = { "BGRX", "BGRA", "RGBX", "RGBA", "BGR", "RGB", NULL };
 	static const char *const cursor_encodings[] = { "raw", NULL };
 	static const char *const metadata[] = {
@@ -618,6 +623,32 @@ static void handle_cursor_default(rv *pk)
 	be_cursor(NULL, 0, 0, 0, 0);
 }
 
+/* copy a sw x sh picture to the width x height area at x, y of the window's backing store,
+ * upscaling it (nearest neighbour) when it is smaller.
+ * pixels have bpp bytes, with red, green and blue at offsets ri, gi and bi */
+static void blit(win *w, int x, int y, int width, int height, const uint8_t *pixels, size_t rowstride,
+		 size_t bpp, int ri, int gi, int bi, int sw, int sh)
+{
+	int bw, bh, stride;
+	uint32_t *dst = be_window_pixels(w->be, &bw, &bh, &stride);
+	int scaled = sw != width || sh != height;
+	/* clip to the backing store: the window may have been resized since */
+	int x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y;
+	int x1 = x + width > bw ? bw : x + width, y1 = y + height > bh ? bh : y + height;
+	for (int py = y0; py < y1; py++) {
+		size_t sy = scaled ? (size_t)(py - y) * (size_t)sh / (size_t)height : (size_t)(py - y);
+		const uint8_t *srow = pixels + sy * rowstride;
+		uint32_t *row = (uint32_t *)((uint8_t *)dst + (size_t)py * (size_t)stride);
+		for (int px = x0; px < x1; px++) {
+			size_t sx = scaled ? (size_t)(px - x) * (size_t)sw / (size_t)width : (size_t)(px - x);
+			const uint8_t *src = srow + sx * bpp;
+			row[px] = (uint32_t)src[ri] << 16 | (uint32_t)src[gi] << 8 | src[bi];
+		}
+	}
+	if (x1 > x0 && y1 > y0)
+		be_window_damage(w->be, x0, y0, x1 - x0, y1 - y0);
+}
+
 /* paint rgb24 / rgb32 pixels into the window's backing store
  * returns 0 on success, -1 on decoding error */
 static int paint_rgb(win *w, int x, int y, int width, int height, rv *data, int64_t rowstride,
@@ -659,20 +690,23 @@ static int paint_rgb(win *w, int x, int y, int width, int height, rv *data, int6
 		free(decompressed);
 		return -1;
 	}
-	int bw, bh, stride;
-	uint32_t *dst = be_window_pixels(w->be, &bw, &bh, &stride);
-	/* clip to the backing store: the window may have been resized since */
-	int x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y;
-	int x1 = x + width > bw ? bw : x + width, y1 = y + height > bh ? bh : y + height;
-	for (int py = y0; py < y1; py++) {
-		const uint8_t *src = pixels + (size_t)(py - y) * (size_t)rowstride + (size_t)(x0 - x) * bpp;
-		uint32_t *row = (uint32_t *)((uint8_t *)dst + (size_t)py * (size_t)stride);
-		for (int px = x0; px < x1; px++, src += bpp)
-			row[px] = (uint32_t)src[ri] << 16 | (uint32_t)src[gi] << 8 | src[bi];
-	}
-	if (x1 > x0 && y1 > y0)
-		be_window_damage(w->be, x0, y0, x1 - x0, y1 - y0);
+	blit(w, x, y, width, height, pixels, (size_t)rowstride, bpp, ri, gi, bi, width, height);
 	free(decompressed);
+	return 0;
+}
+
+/* paint a webp picture, which may have been encoded at a smaller size (scaled_size)
+ * returns 0 on success, -1 on decoding error */
+static int paint_webp(win *w, int x, int y, int width, int height, rv *data)
+{
+	int pw, ph;
+	if (!data || (data->type != RV_BYTES && data->type != RV_STR))
+		return -1;
+	uint8_t *pixels = webp_decode(data->u.s.p, data->u.s.len, width, height, &pw, &ph);
+	if (!pixels)
+		return -1;
+	blit(w, x, y, width, height, pixels, (size_t)pw * 4, 4, 2, 1, 0, pw, ph);	/* BGRA */
+	free(pixels);
 	return 0;
 }
 
@@ -695,10 +729,12 @@ static void handle_window_draw(rv *pk)
 	} else if (!valid_size(width, height) || x < -32768 || x > 32767 || y < -32768 || y > 32767) {
 		result = -1;
 		strcpy(message, "invalid geometry");
-	} else if (strcmp(encoding, "rgb24") && strcmp(encoding, "rgb32")) {
+	} else if (strcmp(encoding, "rgb24") && strcmp(encoding, "rgb32") && strcmp(encoding, "webp")) {
 		result = -1;
 		snprintf(message, sizeof(message), "unsupported encoding %s", encoding);
-	} else if (paint_rgb(w, (int)x, (int)y, (int)width, (int)height, rv_list_get(pk, 7), rowstride, opts, encoding)) {
+	} else if (!strcmp(encoding, "webp") ?
+		   paint_webp(w, (int)x, (int)y, (int)width, (int)height, rv_list_get(pk, 7)) :
+		   paint_rgb(w, (int)x, (int)y, (int)width, (int)height, rv_list_get(pk, 7), rowstride, opts, encoding)) {
 		result = -1;
 		strcpy(message, "decoding error");
 	} else {
