@@ -29,6 +29,9 @@ void be_window_raise(be_window *win);
 /* ring the bell for win (NULL: no window), percent is -100..100 relative to the base volume */
 void be_bell(be_window *win, int percent);
 void be_window_destroy(be_window *win);
+/* the cursor for all windows: w * h native endian 0xAARRGGBB premultiplied pixels,
+ * hotspot inside the image, NULL restores the default cursor */
+void be_cursor(const uint32_t *argb, int w, int h, int xhot, int yhot);
 /* the backing store: 32-bit native endian 0x00RRGGBB pixels, stride in bytes */
 uint32_t *be_window_pixels(be_window *win, int *w, int *h, int *stride);
 void be_window_damage(be_window *win, int x, int y, int w, int h);

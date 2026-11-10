@@ -3,10 +3,11 @@
 A minimal [xpra](https://xpra.org) client in C, written clean-room from the xpra
 protocol documentation only (`docs/Porting`, `docs/Network/Protocol.md`, `docs/Subsystems`).
 
-It shows the windows of a seamless session and forwards pointer and keyboard input,
-and rings the bell. Server events and notifications are printed on stdout. Nothing else: no audio, clipboard, cursors, tray, file transfers, ...
+It shows the windows of a seamless session and the application cursors, forwards pointer and keyboard input,
+and rings the bell. Server events and notifications are printed on stdout. Nothing else: no audio, clipboard, tray, file transfers, ...
 
-Dependencies: libc and libX11. LZ4 decompression, rencodeplus and HMAC-SHA256 are built in.
+Dependencies: libc and libX11. Colour cursors use libXcursor when it is installed (loaded at runtime),
+otherwise they are shown in black and white. LZ4 decompression, rencodeplus and HMAC-SHA256 are built in.
 
 ## Build
 

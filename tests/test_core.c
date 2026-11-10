@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "buf.h"
+#include "cursor.h"
 #include "lz4.h"
 #include "rencode.h"
 #include "sha256.h"
@@ -298,6 +299,114 @@ static void test_sha256(void)
 	CHECK(!strcmp(hex, "35ecd3610ec3de9d10cefd1d5be0719c4f0a10a4a821b0dada4392fb9f010850"));
 }
 
+/* build ["cursor-data", enc, w, h, xhot, yhot, serial, data] with data of len bytes, then decode it */
+static int cursor_packet(const char *enc, int64_t w, int64_t h, int64_t xhot, int64_t yhot,
+			 const uint8_t *data, size_t len, size_t nitems, cursor_image *ci)
+{
+	buf_t b = { 0 };
+	enc_list(&b, nitems);
+	enc_str(&b, "cursor-data");
+	enc_str(&b, enc);
+	int64_t ints[] = { w, h, xhot, yhot, 7 };
+	for (size_t i = 0; i < 5 && i + 2 < nitems; i++)
+		enc_int(&b, ints[i]);
+	if (nitems > 7)
+		enc_bytes(&b, data, len);
+	if (nitems > 8)
+		enc_str(&b, "left_ptr");
+	rv *pk = rv_decode(b.data, b.len);
+	CHECK(pk != NULL);
+	const char *err = NULL;
+	int r = cursor_decode(pk, ci, &err);
+	CHECK(r >= 0 || err != NULL);
+	CHECK(r > 0 || ci->pixels == NULL);
+	rv_free(pk);
+	buf_free(&b);
+	return r;
+}
+
+static void test_cursor(void)
+{
+	static uint8_t big[4 * CURSOR_MAX * CURSOR_MAX + 4];
+	/* 2x1 RGBA, straight alpha: opaque red, half transparent white */
+	const uint8_t px[8] = { 0xff, 0, 0, 0xff, 0xff, 0xff, 0xff, 0x80 };
+	cursor_image ci;
+	CHECK(cursor_packet("raw", 2, 1, 1, 0, px, 8, 9, &ci) == 1);
+	CHECK(ci.w == 2 && ci.h == 1 && ci.xhot == 1 && ci.yhot == 0);
+	CHECK(ci.pixels && ci.pixels[0] == 0xffff0000u && ci.pixels[1] == 0x80808080u);
+	free(ci.pixels);
+	/* the name is optional */
+	CHECK(cursor_packet("raw", 2, 1, 0, 0, px, 8, 8, &ci) == 1);
+	free(ci.pixels);
+	/* the largest size */
+	CHECK(cursor_packet("raw", CURSOR_MAX, CURSOR_MAX, CURSOR_MAX - 1, CURSOR_MAX - 1,
+			    big, 4 * CURSOR_MAX * CURSOR_MAX, 9, &ci) == 1);
+	free(ci.pixels);
+	/* empty encoding: default cursor, even without the other fields */
+	CHECK(cursor_packet("", 0, 0, 0, 0, NULL, 0, 2, &ci) == 0);
+	CHECK(cursor_packet("", 2, 1, 0, 0, px, 8, 9, &ci) == 0);
+	/* not advertised */
+	CHECK(cursor_packet("png", 2, 1, 0, 0, px, 8, 9, &ci) < 0);
+	CHECK(cursor_packet("rawx", 2, 1, 0, 0, px, 8, 9, &ci) < 0);
+	/* truncated */
+	CHECK(cursor_packet("raw", 2, 1, 0, 0, px, 8, 7, &ci) < 0);
+	CHECK(cursor_packet("raw", 2, 1, 0, 0, px, 8, 3, &ci) < 0);
+	/* sizes */
+	CHECK(cursor_packet("raw", 0, 1, 0, 0, px, 0, 9, &ci) < 0);
+	CHECK(cursor_packet("raw", 2, -1, 0, 0, px, 8, 9, &ci) < 0);
+	CHECK(cursor_packet("raw", CURSOR_MAX + 1, 1, 0, 0, big, 4 * (CURSOR_MAX + 1), 9, &ci) < 0);
+	CHECK(cursor_packet("raw", (int64_t)1 << 32, 1, 0, 0, px, 8, 9, &ci) < 0);
+	CHECK(cursor_packet("raw", INT64_MIN, 1, 0, 0, px, 8, 9, &ci) < 0);
+	/* hotspot outside the image */
+	CHECK(cursor_packet("raw", 2, 1, 2, 0, px, 8, 9, &ci) < 0);
+	CHECK(cursor_packet("raw", 2, 1, 0, 1, px, 8, 9, &ci) < 0);
+	CHECK(cursor_packet("raw", 2, 1, -1, 0, px, 8, 9, &ci) < 0);
+	/* the pixel data must be exactly w * h * 4 bytes */
+	CHECK(cursor_packet("raw", 2, 1, 0, 0, px, 7, 9, &ci) < 0);
+	CHECK(cursor_packet("raw", 2, 1, 0, 0, big, 12, 9, &ci) < 0);
+	CHECK(cursor_packet("raw", 2, 1, 0, 0, px, 0, 9, &ci) < 0);
+
+	/* wrong types: bool size, int encoding, int data, not a list */
+	const char *err;
+	buf_t b = { 0 };
+	enc_list(&b, 8);
+	enc_str(&b, "cursor-data");
+	enc_str(&b, "raw");
+	enc_bool(&b, 1);
+	enc_bool(&b, 1);
+	enc_int(&b, 0);
+	enc_int(&b, 0);
+	enc_int(&b, 0);
+	enc_bytes(&b, px, 4);
+	rv *pk = rv_decode(b.data, b.len);
+	CHECK(cursor_decode(pk, &ci, &err) < 0 && !ci.pixels);
+	rv_free(pk);
+	b.len = 0;
+	enc_list(&b, 8);
+	enc_str(&b, "cursor-data");
+	enc_str(&b, "raw");
+	for (int i = 0; i < 5; i++)
+		enc_int(&b, i < 2 ? 1 : 0);
+	enc_int(&b, 0);
+	pk = rv_decode(b.data, b.len);
+	CHECK(cursor_decode(pk, &ci, &err) < 0 && !ci.pixels);
+	rv_free(pk);
+	b.len = 0;
+	enc_list(&b, 2);
+	enc_str(&b, "cursor-data");
+	enc_int(&b, 0);
+	pk = rv_decode(b.data, b.len);
+	CHECK(cursor_decode(pk, &ci, &err) < 0 && !ci.pixels);
+	rv_free(pk);
+	b.len = 0;
+	enc_dict(&b, 0);
+	pk = rv_decode(b.data, b.len);
+	CHECK(cursor_decode(pk, &ci, &err) < 0 && !ci.pixels);
+	CHECK(cursor_decode(NULL, &ci, &err) < 0 && !ci.pixels);
+	rv_free(pk);
+	buf_free(&b);
+}
+
 int main(void)
 {
 	test_rencode_ints();
@@ -308,6 +417,7 @@ int main(void)
 	test_float();
 	test_lz4();
 	test_sha256();
+	test_cursor();
 	if (failures) {
 		fprintf(stderr, "%d failure(s)\n", failures);
 		return 1;

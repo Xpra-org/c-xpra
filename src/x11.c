@@ -1,4 +1,5 @@
 /* Xlib backend */
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,6 +30,7 @@ static GC gc;
 static Atom wm_protocols, wm_delete_window, net_wm_name, utf8_string;
 static be_window *windows;
 static char layout[64] = "us";
+static Cursor cursor = None;	/* None: the default cursor */
 
 static int on_x_error(Display *d, XErrorEvent *e)
 {
@@ -173,6 +175,8 @@ be_window *be_window_new(uint64_t wid, int x, int y, int w, int h, int override_
 	bw->xid = XCreateWindow(dpy, RootWindow(dpy, screen), x, y, (unsigned)w, (unsigned)h, 0, depth,
 				InputOutput, visual,
 				CWBackPixmap | CWBitGravity | CWOverrideRedirect | CWColormap | CWEventMask, &attrs);
+	if (cursor != None)
+		XDefineCursor(dpy, bw->xid, cursor);
 	bw->wid = wid;
 	bw->override_redirect = override_redirect;
 	resize_backing(bw, w, h);
@@ -257,6 +261,85 @@ void be_window_destroy(be_window *w)
 	}
 	free(w->pixels);
 	free(w);
+}
+
+/* libXcursor's XcursorImage (a stable ABI), loaded at runtime so that it stays optional */
+typedef struct {
+	uint32_t version, size, width, height, xhot, yhot, delay;
+	uint32_t *pixels;	/* premultiplied ARGB */
+} xcursor_image;
+typedef Cursor (*xcursor_load_fn)(Display *, const xcursor_image *);
+
+static Cursor argb_cursor(const uint32_t *argb, int w, int h, int xhot, int yhot)
+{
+	static int loaded;
+	static xcursor_load_fn load;
+	if (!loaded) {
+		loaded = 1;
+		void *lib = dlopen("libXcursor.so.1", RTLD_LAZY);
+		if (lib)
+			*(void **)&load = dlsym(lib, "XcursorImageLoadCursor");
+	}
+	if (!load)
+		return None;
+	xcursor_image img = {
+		.version = 1, .size = (uint32_t)(w > h ? w : h), .width = (uint32_t)w, .height = (uint32_t)h,
+		.xhot = (uint32_t)xhot, .yhot = (uint32_t)yhot, .pixels = (uint32_t *)argb,
+	};
+	return load(dpy, &img);
+}
+
+/* without libXcursor: a black and white cursor, opaque where alpha >= 50% */
+static Cursor mono_cursor(const uint32_t *argb, int w, int h, int xhot, int yhot)
+{
+	size_t bpl = ((size_t)w + 7) / 8;	/* XBitmapFormat: LSB first, rows padded to bytes */
+	char *src = calloc(bpl * (size_t)h * 2, 1);
+	if (!src)
+		return None;
+	char *mask = src + bpl * (size_t)h;
+	for (int y = 0; y < h; y++) {
+		for (int x = 0; x < w; x++) {
+			uint32_t p = argb[(size_t)y * (size_t)w + (size_t)x], a = p >> 24;
+			if (a < 128)
+				continue;
+			/* premultiplied luminance: dark pixels use the foreground (black) */
+			uint32_t lum = (((p >> 16) & 0xff) * 3 + ((p >> 8) & 0xff) * 6 + (p & 0xff)) / 10;
+			size_t i = (size_t)y * bpl + (size_t)x / 8;
+			mask[i] |= (char)(1 << (x & 7));
+			if (lum * 2 < a)
+				src[i] |= (char)(1 << (x & 7));
+		}
+	}
+	Window root = RootWindow(dpy, screen);
+	Pixmap ps = XCreateBitmapFromData(dpy, root, src, (unsigned)w, (unsigned)h);
+	Pixmap pm = XCreateBitmapFromData(dpy, root, mask, (unsigned)w, (unsigned)h);
+	free(src);
+	XColor black = { .red = 0, .green = 0, .blue = 0 }, white = { .red = 0xffff, .green = 0xffff, .blue = 0xffff };
+	Cursor c = XCreatePixmapCursor(dpy, ps, pm, &black, &white, (unsigned)xhot, (unsigned)yhot);
+	XFreePixmap(dpy, ps);
+	XFreePixmap(dpy, pm);
+	return c;
+}
+
+void be_cursor(const uint32_t *argb, int w, int h, int xhot, int yhot)
+{
+	Cursor old = cursor;
+	cursor = None;
+	if (argb) {
+		cursor = argb_cursor(argb, w, h, xhot, yhot);
+		if (cursor == None)
+			cursor = mono_cursor(argb, w, h, xhot, yhot);
+	}
+	for (be_window *bw = windows; bw; bw = bw->next) {
+		if (cursor != None)
+			XDefineCursor(dpy, bw->xid, cursor);
+		else
+			XUndefineCursor(dpy, bw->xid);
+	}
+	/* the windows no longer reference it */
+	if (old != None)
+		XFreeCursor(dpy, old);
+	XFlush(dpy);
 }
 
 uint32_t *be_window_pixels(be_window *w, int *width, int *height, int *stride)

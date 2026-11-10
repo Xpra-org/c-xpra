@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include "backend.h"
+#include "cursor.h"
 #include "rencode.h"
 #include "sha256.h"
 #include "lz4.h"
@@ -144,6 +145,7 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	static const char *const enc_options[] = { "rgb", NULL };
 	static const char *const enc_core[] = { "rgb24", "rgb32", NULL };
 	static const char *const rgb_formats[] = { "BGRX", "BGRA", "RGBX", "RGBA", "BGR", "RGB", NULL };
+	static const char *const cursor_encodings[] = { "raw", NULL };
 	static const char *const metadata[] = {
 		"title", "override-redirect", "transient-for", "size-constraints", NULL,
 	};
@@ -245,6 +247,12 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	enc_int(&b, 400);
 	enc_str(&b, "distance");
 	enc_pair(&b, 5, 5);	/* x, y: the server rejects a plain int */
+	enc_str(&b, "cursor");
+	enc_dict(&b, 2);
+	enc_str(&b, "encodings");
+	enc_strlist(&b, cursor_encodings);
+	enc_str(&b, "max");
+	enc_pair(&b, CURSOR_MAX, CURSOR_MAX);
 
 	if (response) {
 		enc_str(&b, "challenge_response");
@@ -590,6 +598,26 @@ static void handle_window_destroy(rv *pk)
 	}
 }
 
+static void handle_cursor_data(rv *pk)
+{
+	cursor_image ci;
+	const char *err = "";
+	int r = cursor_decode(pk, &ci, &err);
+	if (r < 0)
+		fprintf(stderr, "invalid cursor-data: %s\n", err);
+	if (r > 0)
+		be_cursor(ci.pixels, ci.w, ci.h, ci.xhot, ci.yhot);
+	else
+		be_cursor(NULL, 0, 0, 0, 0);
+	free(ci.pixels);
+}
+
+static void handle_cursor_default(rv *pk)
+{
+	(void)pk;
+	be_cursor(NULL, 0, 0, 0, 0);
+}
+
 /* paint rgb24 / rgb32 pixels into the window's backing store
  * returns 0 on success, -1 on decoding error */
 static int paint_rgb(win *w, int x, int y, int width, int height, rv *data, int64_t rowstride,
@@ -717,6 +745,8 @@ static const handler_t HANDLERS[] = {
 	{ "window-destroy", handle_window_destroy, 1 },
 	{ "window-bell", handle_window_bell, 1 },
 	{ "window-draw", handle_window_draw, 1 },
+	{ "cursor-data", handle_cursor_data, 1 },
+	{ "cursor-default", handle_cursor_default, 1 },
 	{ "events", handle_events, 1 },
 	{ "notification-show", handle_notification_show, 1 },
 	{ "notification-close", handle_notification_close, 1 },
