@@ -81,5 +81,6 @@ make test
    hmac+sha256 authentication
 - Features:
    X11 backend: window forwarding with rgb24 / rgb32 pictures, and png / webp when libpng / libwebp are installed
+   window icons, when libpng is installed
    override-redirect popups, transient windows and size constraints
    pointer, wheel and keyboard input

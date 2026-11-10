@@ -27,7 +27,7 @@ static int screen;
 static Visual *visual;
 static int depth;
 static GC gc;
-static Atom wm_protocols, wm_delete_window, net_wm_name, utf8_string;
+static Atom wm_protocols, wm_delete_window, net_wm_name, net_wm_icon, utf8_string;
 static be_window *windows;
 static char layout[64] = "us";
 static Cursor cursor = None;	/* None: the default cursor */
@@ -93,6 +93,7 @@ int be_init(const char *display_name)
 	wm_protocols = XInternAtom(dpy, "WM_PROTOCOLS", False);
 	wm_delete_window = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
 	net_wm_name = XInternAtom(dpy, "_NET_WM_NAME", False);
+	net_wm_icon = XInternAtom(dpy, "_NET_WM_ICON", False);
 	utf8_string = XInternAtom(dpy, "UTF8_STRING", False);
 	/* no fake release events for auto-repeat */
 	XkbSetDetectableAutoRepeat(dpy, True, NULL);
@@ -195,6 +196,22 @@ void be_window_title(be_window *w, const char *utf8)
 	XChangeProperty(dpy, w->xid, net_wm_name, utf8_string, 8, PropModeReplace,
 			(const unsigned char *)utf8, (int)strlen(utf8));
 	XStoreName(dpy, w->xid, utf8);
+}
+
+void be_window_icon(be_window *w, const uint32_t *argb, int width, int height)
+{
+	/* _NET_WM_ICON: width, height, then the ARGB pixels, as format 32 data (an array of longs) */
+	size_t n = (size_t)width * height;
+	unsigned long *data = malloc((n + 2) * sizeof(unsigned long));
+	if (!data)
+		return;
+	data[0] = (unsigned long)width;
+	data[1] = (unsigned long)height;
+	for (size_t i = 0; i < n; i++)
+		data[i + 2] = argb[i];
+	XChangeProperty(dpy, w->xid, net_wm_icon, XA_CARDINAL, 32, PropModeReplace,
+			(const unsigned char *)data, (int)(n + 2));
+	free(data);
 }
 
 void be_window_transient_for(be_window *w, be_window *parent)

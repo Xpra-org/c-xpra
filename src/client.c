@@ -26,6 +26,9 @@
 #define CLIENT_VERSION "0.1"
 #define AUTH_DIGEST "hmac+sha256"
 
+/* the largest window icon accepted (the server scales them down to 64x64 by default) */
+#define ICON_MAX 256
+
 typedef struct win {
 	uint64_t wid;
 	int x, y, w, h;		/* server geometry */
@@ -155,6 +158,7 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	}
 	static const char *const rgb_formats[] = { "BGRX", "BGRA", "RGBX", "RGBA", "BGR", "RGB", NULL };
 	static const char *const cursor_encodings[] = { "raw", NULL };
+	static const char *const icon_encodings[] = { "png", NULL };
 	static const char *const metadata[] = {
 		"title", "override-redirect", "transient-for", "size-constraints", NULL,
 	};
@@ -222,7 +226,12 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	enc_strlist(&b, metadata);
 
 	enc_str(&b, "encoding");
-	enc_dict(&b, 5);
+	enc_dict(&b, 5 + png);
+	if (png) {
+		/* Window.md: window icons are png files */
+		enc_str(&b, "window-icon");
+		enc_strlist(&b, icon_encodings);
+	}
 	enc_str(&b, "options");
 	enc_strlist(&b, enc_options);
 	enc_str(&b, "core");
@@ -559,6 +568,31 @@ static void handle_window_bell(rv *pk)
 	be_bell(w ? w->be : NULL, (int)percent);
 }
 
+static void handle_window_icon(rv *pk)
+{
+	/* Window.md: wid, w, h, encoding, data - only png is advertised, the size is the png's own */
+	win *w = find_window((uint64_t)rv_int(rv_list_get(pk, 1), 0));
+	rv *data = rv_list_get(pk, 5);
+	char encoding[16] = "";
+	rv_strcpy(rv_list_get(pk, 4), encoding, sizeof(encoding));
+	if (!w || strcmp(encoding, "png") || !data || (data->type != RV_BYTES && data->type != RV_STR))
+		return;
+	int iw, ih;
+	uint8_t *bgra = pngdec_decode(data->u.s.p, data->u.s.len, ICON_MAX, ICON_MAX, &iw, &ih);
+	if (!bgra) {
+		fprintf(stderr, "invalid window-icon for window %#llx\n", (unsigned long long)w->wid);
+		return;
+	}
+	/* convert in place to native endian 0xAARRGGBB, straight alpha */
+	uint32_t *argb = (uint32_t *)(void *)bgra;
+	for (size_t i = 0; i < (size_t)iw * ih; i++) {
+		const uint8_t *p = bgra + i * 4;
+		argb[i] = (uint32_t)p[3] << 24 | (uint32_t)p[2] << 16 | (uint32_t)p[1] << 8 | p[0];
+	}
+	be_window_icon(w->be, argb, iw, ih);
+	free(bgra);
+}
+
 static void handle_events(rv *pk)
 {
 	/* Protocol.md 7.1: name, values... - lifecycle notifications, only logged */
@@ -797,6 +831,7 @@ static const handler_t HANDLERS[] = {
 	{ "window-raise", handle_window_raise, 1 },
 	{ "window-destroy", handle_window_destroy, 1 },
 	{ "window-bell", handle_window_bell, 1 },
+	{ "window-icon", handle_window_icon, 1 },
 	{ "window-draw", handle_window_draw, 1 },
 	{ "cursor-data", handle_cursor_data, 1 },
 	{ "cursor-default", handle_cursor_default, 1 },
