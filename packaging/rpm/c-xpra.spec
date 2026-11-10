@@ -12,15 +12,15 @@
 %{!?source_sha256:%global source_sha256 4ab43dd7efb39169cd399d1319fb609ea5613c6df34e51c2e8c45c6d4ca318fb}
 
 Name:				c-xpra
-Version:			0.1.0
+Version:			0.1.1
 Release:			1%{?dist}
 Summary:			Minimal Xpra client written in C
 License:			MIT
 URL:				https://github.com/Xpra-org/c-xpra
 Packager:			Antoine Martin <antoine@xpra.org>
 Vendor:				https://xpra.org/
-# the "Source code (tar.gz)" of https://github.com/Xpra-org/c-xpra/releases/tag/v0.1.0;
-# the `#/` fragment renames the github archive to something less ambiguous than `v0.1.0.tar.gz`
+# the "Source code (tar.gz)" of https://github.com/Xpra-org/c-xpra/releases/tag/v0.1.1;
+# the `#/` fragment renames the github archive to something less ambiguous than `v0.1.1.tar.gz`
 Source0:			%{url}/archive/refs/tags/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
 
 BuildRequires:		gcc
@@ -70,6 +70,16 @@ make test
 
 
 %changelog
+* Tue Nov 10 2026 Antoine Martin <antoine@xpra.org> 0.1.1-1
+- Features:
+   png and webp pictures, when libpng / libwebp are installed
+   window icons, when libpng is installed
+   application cursors, in colour when libXcursor is installed
+   bell forwarding
+   server events and notifications printed on stdout
+- Fixes:
+   hello: send client_type, the client version and the double-click distance as an x, y pair
+
 * Tue Nov 10 2026 Antoine Martin <antoine@xpra.org> 0.1.0-1
 - Platforms, build and packaging:
    add RPM and Debian packaging, and the manual page
@@ -80,7 +90,6 @@ make test
    rencodeplus packets, LZ4 compressed records and raw chunks
    hmac+sha256 authentication
 - Features:
-   X11 backend: window forwarding with rgb24 / rgb32 pictures, and png / webp when libpng / libwebp are installed
-   window icons, when libpng is installed
+   X11 backend: window forwarding with rgb24 / rgb32 pictures
    override-redirect popups, transient windows and size constraints
    pointer, wheel and keyboard input

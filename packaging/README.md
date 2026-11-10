@@ -46,8 +46,8 @@ A local RPM test build can override it:
 
 ```shell
 mkdir -p ~/rpmbuild/SOURCES
-tar --transform 's,^\.,c-xpra-0.1.0,' --exclude=./.git -czf ~/rpmbuild/SOURCES/c-xpra-0.1.0.tar.gz .
-rpmbuild --define "source_sha256 $(sha256sum ~/rpmbuild/SOURCES/c-xpra-0.1.0.tar.gz | cut -d' ' -f1)" \
+tar --transform 's,^\.,c-xpra-0.1.1,' --exclude=./.git -czf ~/rpmbuild/SOURCES/c-xpra-0.1.1.tar.gz .
+rpmbuild --define "source_sha256 $(sha256sum ~/rpmbuild/SOURCES/c-xpra-0.1.1.tar.gz | cut -d' ' -f1)" \
     -ba packaging/rpm/c-xpra.spec
 ```
 

@@ -1,3 +1,16 @@
+c-xpra (0.1.1-1) UNRELEASED; urgency=medium
+
+  * Features:
+    png and webp pictures, when libpng / libwebp are installed
+    window icons, when libpng is installed
+    application cursors, in colour when libXcursor is installed
+    bell forwarding
+    server events and notifications printed on stdout
+  * Fixes:
+    hello: send client_type, the client version and the double-click distance as an x, y pair
+
+ -- Antoine Martin <antoine@xpra.org>  Tue, 10 Nov 2026 17:02:19 +0700
+
 c-xpra (0.1.0-1) UNRELEASED; urgency=medium
 
   * Platforms, build and packaging:
