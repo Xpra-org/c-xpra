@@ -224,6 +224,8 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	enc_bool(&b, 1);
 	enc_str(&b, "events");
 	enc_bool(&b, 1);
+	enc_str(&b, "notification");
+	enc_bool(&b, 1);
 	enc_str(&b, "keyboard");
 	enc_bool(&b, 1);
 	enc_str(&b, "modifiers");
@@ -549,6 +551,26 @@ static void handle_events(rv *pk)
 	fflush(stdout);
 }
 
+static void handle_notification_show(rv *pk)
+{
+	/* Notification.md: dbus_id, id, app name, replaced id, app icon, summary, body, timeout, ...
+	 * only printed, never shown: icons, actions and hints are ignored */
+	printf("notification %lld from ", (long long)rv_int(rv_list_get(pk, 2), 0));
+	rv_print(stdout, rv_list_get(pk, 3));
+	fputs(": ", stdout);
+	rv_print(stdout, rv_list_get(pk, 6));
+	fputc(' ', stdout);
+	rv_print(stdout, rv_list_get(pk, 7));
+	fputc('\n', stdout);
+	fflush(stdout);
+}
+
+static void handle_notification_close(rv *pk)
+{
+	printf("notification %lld closed\n", (long long)rv_int(rv_list_get(pk, 1), 0));
+	fflush(stdout);
+}
+
 static void handle_window_destroy(rv *pk)
 {
 	uint64_t wid = (uint64_t)rv_int(rv_list_get(pk, 1), 0);
@@ -693,6 +715,8 @@ static const handler_t HANDLERS[] = {
 	{ "window-bell", handle_window_bell, 1 },
 	{ "window-draw", handle_window_draw, 1 },
 	{ "events", handle_events, 1 },
+	{ "notification-show", handle_notification_show, 1 },
+	{ "notification-close", handle_notification_close, 1 },
 };
 
 static void dispatch(rv *pk)

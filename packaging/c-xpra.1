@@ -15,10 +15,10 @@ c-xpra \- minimal Xpra client written in C
 connects to an Xpra server and shows the windows of a seamless session on the
 local X11 display, forwarding pointer and keyboard input to the server
 and ringing the local bell when the session rings its own.
-Server lifecycle events are printed on standard output.
+Server lifecycle events and notifications are printed on standard output.
 .PP
 It implements only what is needed for that: there is no audio, clipboard,
-notification, cursor, system tray, file transfer or printing support, and
+cursor, system tray, file transfer or printing support, and
 pictures are only received as raw pixels, optionally LZ4 compressed.
 .PP
 The server must be Xpra version 8.0 or later.
