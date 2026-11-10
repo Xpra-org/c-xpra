@@ -13,7 +13,8 @@ LDFLAGS ?= -Wl,-z,noseparate-code -Wl,--build-id=none
 REQ_CFLAGS = -std=c99 -Wall -Wextra -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L \
 	-fno-asynchronous-unwind-tables -fno-unwind-tables -ffunction-sections -fdata-sections
 REQ_LDFLAGS = -Wl,--gc-sections
-LIBS = -lX11 -ldl
+LIBS = -lX11
+# extra libraries, ie: LDLIBS=-ldl for dlopen before glibc 2.34 (see the RPM spec)
 
 CORE = src/buf.c src/rencode.c src/lz4.c src/sha256.c src/cursor.c src/pngdec.c src/webp.c
 SRCS = $(CORE) src/net.c src/client.c src/x11.c src/main.c
@@ -22,7 +23,7 @@ TESTS = tests/test_core
 BIN = c-xpra
 
 $(BIN): $(SRCS) src/*.h
-	$(CC) $(CPPFLAGS) $(REQ_CFLAGS) $(CFLAGS) $(REQ_LDFLAGS) $(LDFLAGS) -o $@ $(SRCS) $(LIBS)
+	$(CC) $(CPPFLAGS) $(REQ_CFLAGS) $(CFLAGS) $(REQ_LDFLAGS) $(LDFLAGS) -o $@ $(SRCS) $(LIBS) $(LDLIBS)
 
 strip: $(BIN)
 	strip -s -R .comment $(BIN)
@@ -32,7 +33,7 @@ upx: strip
 	upx -q --best --ultra-brute $(BIN)
 
 $(TESTS): tests/test_core.c $(CORE) src/*.h
-	$(CC) $(CPPFLAGS) $(REQ_CFLAGS) $(CFLAGS) -Isrc $(REQ_LDFLAGS) $(LDFLAGS) -o $@ tests/test_core.c $(CORE) -ldl
+	$(CC) $(CPPFLAGS) $(REQ_CFLAGS) $(CFLAGS) -Isrc $(REQ_LDFLAGS) $(LDFLAGS) -o $@ tests/test_core.c $(CORE) $(LDLIBS)
 
 test: $(TESTS)
 	./tests/test_core

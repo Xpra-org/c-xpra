@@ -27,6 +27,11 @@ BuildRequires:		gcc
 BuildRequires:		make
 BuildRequires:		pkgconfig(x11)
 
+%if 0%{?el8}
+# glibc 2.28: dlopen and dlsym are still in libdl
+%global make_libs LDLIBS=-ldl
+%endif
+
 %description
 c-xpra is a minimal Xpra client: it connects to an Xpra server over TCP or a
 local socket and shows the windows of a seamless session on the local X11
@@ -48,17 +53,17 @@ fi
 %build
 # the Makefile adds the flags the code needs to the distribution's CFLAGS and LDFLAGS
 %set_build_flags
-%make_build
+%make_build %{?make_libs}
 
 
 %check
 # each rpm section runs in its own shell, hence the repeated environment:
 %set_build_flags
-make test
+make test %{?make_libs}
 
 
 %install
-%make_install PREFIX=%{_prefix}
+%make_install PREFIX=%{_prefix} %{?make_libs}
 
 
 %files
