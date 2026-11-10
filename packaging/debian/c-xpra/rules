@@ -1,0 +1,15 @@
+#!/usr/bin/make -f
+
+# dh exports the distribution's CFLAGS, CPPFLAGS and LDFLAGS,
+# the Makefile adds the flags the code needs to them
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@
+
+# `make install` installs the binary and the manual page, the default prefix is /usr/local
+override_dh_auto_install:
+	dh_auto_install -- PREFIX=/usr
+
+override_dh_builddeb:
+	dh_builddeb -- -Zxz

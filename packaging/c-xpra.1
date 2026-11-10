@@ -1,0 +1,121 @@
+.TH C-XPRA 1 "10 November 2026" "c-xpra 0.1.0" "User Commands"
+.SH NAME
+c-xpra \- minimal Xpra client written in C
+.SH SYNOPSIS
+.B c-xpra
+.RB [ \-d ]
+.RB [ \-\-password\-file=\c
+.IR file ]
+.I target
+.br
+.B c-xpra
+.B \-\-help
+.SH DESCRIPTION
+.B c-xpra
+connects to an Xpra server and shows the windows of a seamless session on the
+local X11 display, forwarding pointer and keyboard input to the server.
+.PP
+It implements only what is needed for that: there is no audio, clipboard,
+notification, cursor, system tray, file transfer or printing support, and
+pictures are only received as raw pixels, optionally LZ4 compressed.
+.PP
+The server must be Xpra version 8.0 or later.
+.SH TARGETS
+.TP
+.BR tcp:// \fIhost\fR[ : \fIport\fR]
+A plain TCP connection.
+The default port is 14500.
+IPv6 addresses are written in brackets:
+.BR tcp://[::1]:14500 .
+.TP
+.IR host : port
+The same as
+.BR tcp:// .
+.TP
+.BI : display
+A local session, using the socket
+.BI $XDG_RUNTIME_DIR/xpra/ display /socket
+or, for older servers,
+.BI $XDG_RUNTIME_DIR/xpra/ hostname - display
+and
+.BI ~/.xpra/ hostname - display .
+.TP
+.BI socket: path ", " socket:// path ", " path
+A Unix domain socket.
+.PP
+TLS, SSH and WebSocket connections are not supported directly: use an
+.BR ssh (1)
+tunnel to reach a remote server securely.
+.SH OPTIONS
+.TP
+.BR \-d ", " \-\-debug
+Log the type of every packet sent and received.
+.TP
+.BI \-\-password\-file= file
+Read the password from the first line of
+.IR file .
+.TP
+.BR \-h ", " \-\-help
+Print command usage and exit.
+.SH ENVIRONMENT
+.TP
+.B XPRA_PASSWORD
+The password to use when the server requests authentication, unless
+.B \-\-password\-file
+is given.
+.TP
+.B DISPLAY
+The X11 display to show the windows on.
+.TP
+.B USER
+The user name sent to the server.
+.TP
+.BR XDG_RUNTIME_DIR ", " HOME
+Used to locate the socket of a local session.
+.SH AUTHENTICATION
+Only the
+.B hmac+sha256
+challenge / response is supported, so the password itself is never sent to the
+server.
+When no password is supplied and the server requests one, it is read from the
+terminal with echo disabled.
+.PP
+The Xpra protocol does not authenticate the server or encrypt the session:
+use an
+.BR ssh (1)
+tunnel on networks you do not trust.
+.SH EXAMPLES
+Connect to local display 10:
+.PP
+.RS
+.B c-xpra :10
+.RE
+.PP
+Connect to a server on the default TCP port, with a password:
+.PP
+.RS
+.B XPRA_PASSWORD=secret c-xpra tcp://server.example.com
+.RE
+.PP
+Connect to a remote session through an SSH tunnel:
+.PP
+.RS
+.B ssh \-N \-L 14500:127.0.0.1:14500 server.example.com &
+.br
+.B c-xpra tcp://127.0.0.1:14500
+.RE
+.SH EXIT STATUS
+.B c-xpra
+exits with status 0 when the user closes the connection with
+.B SIGINT
+or
+.BR SIGTERM ,
+or when the server closes it for a normal reason (ie: the session was
+detached or shut down), and 1 on errors, including invalid command-line usage,
+connection failures and authentication failures.
+.SH SEE ALSO
+.BR xpra (1),
+.BR ssh (1)
+.PP
+Project documentation:
+.B https://github.com/Xpra-org/c-xpra

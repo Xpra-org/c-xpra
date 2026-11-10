@@ -16,6 +16,7 @@ make strip    # ~35KB
 make upx      # ~20KB, self-extracting (needs upx)
 make test     # unit tests, no display needed
 make asan     # AddressSanitizer build
+make install  # PREFIX=/usr/local by default, DESTDIR is supported
 ```
 
 ## Usage
@@ -58,6 +59,10 @@ Only `hmac+sha256` authentication is implemented: use TLS / SSH tunnels on untru
 
 Adding a platform (GDI, Cocoa, ...) means implementing `src/backend.h` and
 calling the `client_on_*` callbacks for input events.
+
+## Packaging
+
+RPM and DEB packaging is in [packaging/](packaging/README.md).
 
 ## License
 

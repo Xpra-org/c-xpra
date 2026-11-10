@@ -1,0 +1,24 @@
+Source: c-xpra
+Section: x11
+Priority: optional
+Maintainer: Antoine Martin <antoine@xpra.org>
+Build-Depends:
+ debhelper-compat (= 13),
+ libx11-dev,
+Standards-Version: 4.7.2
+Homepage: https://github.com/Xpra-org/c-xpra
+Vcs-Git: https://github.com/Xpra-org/c-xpra.git
+Vcs-Browser: https://github.com/Xpra-org/c-xpra
+Rules-Requires-Root: no
+
+Package: c-xpra
+Architecture: any
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+Description: minimal Xpra client written in C
+ c-xpra connects to an Xpra server over TCP or a local socket and shows the
+ windows of a seamless session on the local X11 display, forwarding pointer
+ and keyboard input. It has no other dependency than libX11.
+ .
+ It requires an Xpra 8.0 or later server.

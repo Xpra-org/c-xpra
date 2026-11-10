@@ -21,13 +21,21 @@ make strip      # stripped release binary
 make upx        # UPX-compressed binary (optional, needs upx)
 make test       # build and run tests/test_core (no display needed)
 make asan       # AddressSanitizer build of the client and the tests (libubsan is not installed here)
+make install    # PREFIX=/usr/local, DESTDIR supported; also installs packaging/c-xpra.1
 make clean
 ./c-xpra -d tcp://127.0.0.1:14500   # -d logs each packet type sent (>) and received (<)
 ```
 
 `tests/test_core.c` is a single binary with no test filter: every `test_*` function is called from `main()`. To run just one, comment out the other calls in `main()`. Run `make clean` after `make asan`, otherwise the next normal build may reuse the ASan objects and flags.
 
-Keep the build free of warnings (`-Wall -Wextra`). The size flags live in the Makefile. The stack protector and CET hardening are deliberately left on: removing them saved no bytes.
+Keep the build free of warnings (`-Wall -Wextra`). In the Makefile, `REQ_CFLAGS`/`REQ_LDFLAGS` are the flags the code needs and are always added. `CFLAGS`/`LDFLAGS` only hold the size-oriented defaults (`-Os`, no build-id, no code page padding), which distribution builds replace with their own: keep anything the code depends on out of them. The stack protector and CET hardening are deliberately left on: removing them saved no bytes.
+
+## Packaging
+
+`packaging/` holds the RPM spec and the Debian files for [repo-build-scripts](https://github.com/Xpra-org/repo-build-scripts). It follows the layout of the sibling `~/projects/go-xpra/packaging` and `~/projects/rust-xpra/packaging`. `packaging/README.md` has the details, including a local `rpmbuild` recipe.
+- **Versions:** a version bump touches `rpm/c-xpra.spec` (`Version`, `%changelog`), `debian/c-xpra/changelog`, the version in `packaging/c-xpra.1`, and the `build.version` string in `send_hello` in `src/client.c`.
+- **Release checksum:** each release needs the spec's `source_sha256` set to the release tarball's checksum.
+- **Man page:** keep `packaging/c-xpra.1` in sync with the command-line options in `src/main.c`.
 
 ## Integration testing
 

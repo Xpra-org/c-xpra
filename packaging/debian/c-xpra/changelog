@@ -1,0 +1,16 @@
+c-xpra (0.1.0-1) UNRELEASED; urgency=medium
+
+  * Platforms, build and packaging:
+    add RPM and Debian packaging, and the manual page
+    honour the distribution's compiler and linker flags
+    add an install target
+  * Network:
+    TCP and Unix domain socket transports
+    rencodeplus packets, LZ4 compressed records and raw chunks
+    hmac+sha256 authentication
+  * Features:
+    X11 backend: window forwarding with rgb24 / rgb32 pictures
+    override-redirect popups, transient windows and size constraints
+    pointer, wheel and keyboard input
+
+ -- Antoine Martin <antoine@xpra.org>  Tue, 10 Nov 2026 13:08:54 +0700
