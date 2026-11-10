@@ -33,7 +33,7 @@ Keep the build free of warnings (`-Wall -Wextra`). In the Makefile, `REQ_CFLAGS`
 ## Packaging
 
 `packaging/` holds the RPM spec and the Debian files for [repo-build-scripts](https://github.com/Xpra-org/repo-build-scripts). It follows the layout of the sibling `~/projects/go-xpra/packaging` and `~/projects/rust-xpra/packaging`. `packaging/README.md` has the details, including a local `rpmbuild` recipe.
-- **Versions:** a version bump touches `rpm/c-xpra.spec` (`Version`, `%changelog`), `debian/c-xpra/changelog`, the version in `packaging/c-xpra.1`, and the `build.version` string in `send_hello` in `src/client.c`.
+- **Versions:** a version bump touches `rpm/c-xpra.spec` (`Version`, `%changelog`), `debian/c-xpra/changelog`, the version in `packaging/c-xpra.1`, and `CLIENT_VERSION` in `src/client.c` (sent as both `version` and `build.version` in the hello).
 - **CI:** `.github/workflows/ci.yml` builds with gcc and clang using `-Werror` and runs the tests, both plain and under ASan. `release.yml` runs on every tag. It requires the tag (with or without a leading `v`) to match the spec `Version`, then publishes UPX-compressed linux amd64/arm64 tarballs and `SHA256SUMS`. The builds run on ubuntu-22.04 runners so the binaries need only an older glibc.
 - **Release checksum:** each release needs the spec's `source_sha256` set to the release tarball's checksum.
 - **Man page:** keep `packaging/c-xpra.1` in sync with the command-line options in `src/main.c`.

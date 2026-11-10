@@ -20,6 +20,7 @@
 
 #define PROTOCOL_MAJOR 8
 #define PROTOCOL_MINOR 0
+#define CLIENT_VERSION "0.1"
 #define AUTH_DIGEST "hmac+sha256"
 
 typedef struct win {
@@ -155,7 +156,7 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	enc_str(&b, "hello");
 	enc_dict_var(&b);
 	enc_str(&b, "version");
-	enc_str(&b, "8.0");
+	enc_str(&b, CLIENT_VERSION);
 	enc_str(&b, "protocol-version");
 	enc_pair(&b, PROTOCOL_MAJOR, PROTOCOL_MINOR);
 	enc_str(&b, "encoders");
@@ -166,6 +167,8 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	enc_int(&b, 1);
 	enc_str(&b, "uuid");
 	enc_str(&b, C.uuid);
+	enc_str(&b, "client_type");
+	enc_str(&b, "c-xpra");
 	enc_str(&b, "username");
 	enc_str(&b, user ? user : "");
 	enc_str(&b, "digest");
@@ -179,7 +182,7 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	enc_str(&b, "build");
 	enc_dict(&b, 1);
 	enc_str(&b, "version");
-	enc_str(&b, "c-xpra 0.1");
+	enc_str(&b, CLIENT_VERSION);
 
 	enc_str(&b, "display");
 	enc_dict(&b, 3);
