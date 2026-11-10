@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`c-xpra` is a minimal xpra client in C99. It shows the windows of an xpra session and shows the application cursors, forwards pointer and keyboard input and rings the bell, and nothing else. Its only dependencies are libc and libX11. Two libraries are optional and loaded with `dlopen`: `x11.c` uses libXcursor for colour cursors (falling back to black and white core cursors), and `webp.c` uses libwebp (`libwebp.so.7`) to decode `webp` pictures, which are only advertised when it loads. The goal is a very small, simple executable (~36 KB stripped, ~20 KB with UPX).
+`c-xpra` is a minimal xpra client in C99. It shows the windows of an xpra session and shows the application cursors, forwards pointer and keyboard input and rings the bell, and nothing else. Its only dependencies are libc and libX11. Two libraries are optional and loaded with `dlopen`: `x11.c` uses libXcursor for colour cursors (falling back to black and white core cursors), and `pngdec.c` / `webp.c` use libpng (`libpng16.so.16`) / libwebp (`libwebp.so.7`) to decode `png` / `webp` pictures, which are only advertised when the library loads. The goal is a very small, simple executable (~36 KB stripped, ~20 KB with UPX).
 
 **Clean-room rule:** implement protocol behaviour ONLY from the xpra documentation in `~/projects/xpra/docs/`. Never read or copy the xpra source code. The most useful pages are:
 - `Porting/Minimal-Client.md`, `Porting/Handshake.md`, `Porting/Authentication.md` (with test vectors), `Porting/Transports.md`
@@ -67,8 +67,10 @@ The client is built in layers, from the bytes on the wire up to the native windo
    - Validates each 8-byte header and decompresses LZ4 records.
    - Raw chunks (at most 3) are buffered and substituted into the main packet's placeholder slots.
    - Outgoing records are always rencodeplus and uncompressed. This is allowed because the hello advertises the `none` compressor.
-3. **`webp.c`**: `dlopen`s libwebp and decodes with `WebPGetInfo` + `WebPDecodeBGRAInto` into our own buffer, so it never needs libwebp's allocator.
-   - A `webp` picture may be smaller than the draw area (`scaled_size`): `blit()` in `client.c` upscales it, nearest neighbour.
+3. **`pngdec.c`, `webp.c`**: picture decoders, both decoding to BGRA in a buffer we allocate, after checking the picture size against the draw area.
+   - `pngdec.c` uses libpng's simplified `png_image` API, which needs no `setjmp` in the caller and handles every colour type and bit depth. It is not called `png.c` to stay clear of libpng's own `png.h`.
+   - `webp.c` uses `WebPGetInfo` + `WebPDecodeBGRAInto`, so it never needs libwebp's allocator.
+   - When the client accepts both, the server sends `webp` (lossless) rather than `png`. A picture may be smaller than the draw area (`scaled_size`): `blit()` in `client.c` upscales it, nearest neighbour.
 4. **`cursor.c`**: validates `cursor-data` packets (strict integer types, size at most `CURSOR_MAX`, hotspot inside the image, exactly `w*h*4` bytes) and converts the straight-alpha RGBA to premultiplied `0xAARRGGBB`. It is in `CORE`, so it is unit tested. An invalid packet restores the default cursor and logs a warning; it never disconnects.
 5. **`client.c`**: protocol state in a single global struct `C`.
    - The `HANDLERS[]` table maps packet names to handlers. Unknown packets are silently ignored.
@@ -87,6 +89,6 @@ Keep these true when changing anything:
 - **Coordinates:** everything is in server pixels. The hello sets `monitor-relative: false`, so positions are absolute. Pointer positions are the window's tracked server `x,y` plus the local event position.
 - **Configure echo:** `client_on_configure` compares the new geometry against the tracked geometry. This stops the client from echoing back moves and resizes the server itself requested.
 - **Acknowledgements:** every `window-draw` MUST get exactly one `window-ack`, including on failure (`-1` = decode error, `-2` = unknown window). Present the window only when `flush` is absent or 0.
-- **Advertised features:** the client advertises only `rgb` (`rgb24`/`rgb32`, raw or `rgb_lz4`), `webp` (when libwebp loads), `raw` cursors, `hmac+sha256` authentication and the `rencodeplus` encoder. Adding an encoding or digest means implementing it, adding it to `send_hello`, and adding a unit test.
+- **Advertised features:** the client advertises only `rgb` (`rgb24`/`rgb32`, raw or `rgb_lz4`), `png`, `png/P`, `png/L` (when libpng loads), `webp` (when libwebp loads), `raw` cursors, `hmac+sha256` authentication and the `rencodeplus` encoder. Adding an encoding or digest means implementing it, adding it to `send_hello`, and adding a unit test.
 - **Wheel:** use `pointer-wheel` only when the server's hello has `wheel.precise` or `wheel.emulation`. Otherwise send wheel buttons 4–7 as `pointer-button` press/release pairs.
 - **Disconnects:** the process exits 0 only for the "normal" `connection-close` reasons listed in Protocol.md §5.3, and 1 for anything else.

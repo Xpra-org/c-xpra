@@ -80,6 +80,6 @@ make test
    rencodeplus packets, LZ4 compressed records and raw chunks
    hmac+sha256 authentication
 - Features:
-   X11 backend: window forwarding with rgb24 / rgb32 pictures, and webp when libwebp is installed
+   X11 backend: window forwarding with rgb24 / rgb32 pictures, and png / webp when libpng / libwebp are installed
    override-redirect popups, transient windows and size constraints
    pointer, wheel and keyboard input

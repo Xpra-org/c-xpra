@@ -18,6 +18,7 @@
 #include "rencode.h"
 #include "sha256.h"
 #include "lz4.h"
+#include "pngdec.h"
 #include "webp.h"
 
 #define PROTOCOL_MAJOR 8
@@ -143,12 +144,15 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	static const char *const encoders[] = { "rencodeplus", NULL };
 	static const char *const compressors[] = { "lz4", "none", NULL };
 	static const char *const digests[] = { AUTH_DIGEST, NULL };
-	/* webp is only advertised when libwebp can be loaded */
-	const char *enc_options[] = { "rgb", "webp", NULL };
-	const char *enc_core[] = { "rgb24", "rgb32", "webp", NULL };
-	int webp = webp_available();
-	if (!webp)
-		enc_options[1] = enc_core[2] = NULL;
+	/* png and webp are only advertised when libpng / libwebp can be loaded */
+	static const char *const pictures[] = { "png", "png/P", "png/L", "webp" };
+	int png = pngdec_available(), webp = webp_available();
+	const char *enc_options[6] = { "rgb" }, *enc_core[7] = { "rgb24", "rgb32" };
+	size_t no = 1, nc = 2;
+	for (size_t i = 0; i < 4; i++) {
+		if (i < 3 ? png : webp)
+			enc_options[no++] = enc_core[nc++] = pictures[i];
+	}
 	static const char *const rgb_formats[] = { "BGRX", "BGRA", "RGBX", "RGBA", "BGR", "RGB", NULL };
 	static const char *const cursor_encodings[] = { "raw", NULL };
 	static const char *const metadata[] = {
@@ -695,14 +699,26 @@ static int paint_rgb(win *w, int x, int y, int width, int height, rv *data, int6
 	return 0;
 }
 
-/* paint a webp picture, which may have been encoded at a smaller size (scaled_size)
+typedef uint8_t *(*picture_decoder)(const uint8_t *data, size_t len, int max_w, int max_h, int *w, int *h);
+
+/* the decoder for a picture encoding (decoding to BGRA), NULL for rgb24 / rgb32 */
+static picture_decoder find_decoder(const char *encoding)
+{
+	if (!strcmp(encoding, "webp"))
+		return webp_decode;
+	if (!strcmp(encoding, "png") || !strcmp(encoding, "png/P") || !strcmp(encoding, "png/L"))
+		return pngdec_decode;
+	return NULL;
+}
+
+/* paint a png or webp picture, which may have been encoded at a smaller size (scaled_size)
  * returns 0 on success, -1 on decoding error */
-static int paint_webp(win *w, int x, int y, int width, int height, rv *data)
+static int paint_picture(win *w, int x, int y, int width, int height, rv *data, picture_decoder decode)
 {
 	int pw, ph;
 	if (!data || (data->type != RV_BYTES && data->type != RV_STR))
 		return -1;
-	uint8_t *pixels = webp_decode(data->u.s.p, data->u.s.len, width, height, &pw, &ph);
+	uint8_t *pixels = decode(data->u.s.p, data->u.s.len, width, height, &pw, &ph);
 	if (!pixels)
 		return -1;
 	blit(w, x, y, width, height, pixels, (size_t)pw * 4, 4, 2, 1, 0, pw, ph);	/* BGRA */
@@ -723,17 +739,18 @@ static void handle_window_draw(rv *pk)
 	rv_strcpy(rv_list_get(pk, 6), encoding, sizeof(encoding));
 	char message[64] = "";
 	int64_t result;
+	picture_decoder decode = find_decoder(encoding);
 	win *w = find_window(wid);
 	if (!w) {
 		result = -2;
 	} else if (!valid_size(width, height) || x < -32768 || x > 32767 || y < -32768 || y > 32767) {
 		result = -1;
 		strcpy(message, "invalid geometry");
-	} else if (strcmp(encoding, "rgb24") && strcmp(encoding, "rgb32") && strcmp(encoding, "webp")) {
+	} else if (!decode && strcmp(encoding, "rgb24") && strcmp(encoding, "rgb32")) {
 		result = -1;
 		snprintf(message, sizeof(message), "unsupported encoding %s", encoding);
-	} else if (!strcmp(encoding, "webp") ?
-		   paint_webp(w, (int)x, (int)y, (int)width, (int)height, rv_list_get(pk, 7)) :
+	} else if (decode ?
+		   paint_picture(w, (int)x, (int)y, (int)width, (int)height, rv_list_get(pk, 7), decode) :
 		   paint_rgb(w, (int)x, (int)y, (int)width, (int)height, rv_list_get(pk, 7), rowstride, opts, encoding)) {
 		result = -1;
 		strcpy(message, "decoding error");

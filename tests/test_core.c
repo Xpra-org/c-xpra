@@ -7,6 +7,7 @@
 #include "cursor.h"
 #include "lz4.h"
 #include "rencode.h"
+#include "pngdec.h"
 #include "sha256.h"
 #include "webp.h"
 
@@ -408,6 +409,73 @@ static void test_cursor(void)
 	buf_free(&b);
 }
 
+/* decode a hex PNG of 3x2 pixels and compare it with the expected BGRA pixels */
+static void check_png(const char *hex, const uint8_t *bgra)
+{
+	uint8_t data[128];
+	size_t len;
+	int w = 0, h = 0;
+	unhex(hex, data, &len);
+	uint8_t *px = pngdec_decode(data, len, 3, 2, &w, &h);
+	CHECK(px && w == 3 && h == 2 && !memcmp(px, bgra, 3 * 2 * 4));
+	if (px && memcmp(px, bgra, 3 * 2 * 4)) {
+		fprintf(stderr, "  got ");
+		for (int i = 0; i < 3 * 2 * 4; i++)
+			fprintf(stderr, "%d,", px[i]);
+		fprintf(stderr, "\n");
+	}
+	free(px);
+}
+
+static void test_png(void)
+{
+	if (!pngdec_available()) {
+		printf("libpng not found, skipping the png tests\n");
+		return;
+	}
+	/* red, green, blue / white, black, #123456 */
+	static const uint8_t colours[] = {
+		0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255,
+		255, 255, 255, 255, 0, 0, 0, 255, 86, 52, 18, 255,
+	};
+	const char *rgb = "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000001849444154789c63f8cf"
+			  "c0c000c1ffffff676060103209030045c30697a38513810000000049454e44ae426082";
+	check_png(rgb, colours);
+	/* png/P: 8 bits per pixel palette */
+	check_png("89504e470d0a1a0a0000000d49484452000000030000000204030000006f5a7b2900000012504c5445ffffff00ff00"
+		  "123456ff00000000ff00000000c49f830000000e49444154789c6334e467649506000165006304ae190f00000000"
+		  "49454e44ae426082", colours);
+	/* png/P: 2 bits per pixel palette, indexes 0 1 2 / 3 0 1 */
+	static const uint8_t pal2[] = {
+		0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255,
+		86, 52, 18, 255, 0, 0, 255, 255, 0, 255, 0, 255,
+	};
+	check_png("89504e470d0a1a0a0000000d4948445200000003000000020203000000e01a8e890000000c504c5445ff000000ff00"
+		  "0000ff123456dd3e36cc0000000c49444154789c639060380200011000dd11e50f220000000049454e44ae426082", pal2);
+	/* png/L: 8 bits per pixel greyscale 0 128 255 / 1 2 3 */
+	static const uint8_t grey[] = {
+		0, 0, 0, 255, 128, 128, 128, 255, 255, 255, 255, 255,
+		1, 1, 1, 255, 2, 2, 2, 255, 3, 3, 3, 255,
+	};
+	check_png("89504e470d0a1a0a0000000d4948445200000003000000020800000000b81f39c60000001049444154789c636068f8"
+		  "cfc8c8c80800080d018404ae1aec0000000049454e44ae426082", grey);
+
+	uint8_t data[128];
+	size_t len;
+	int w, h;
+	unhex(rgb, data, &len);
+	/* larger than the draw area */
+	CHECK(!pngdec_decode(data, len, 2, 2, &w, &h));
+	CHECK(!pngdec_decode(data, len, 3, 1, &w, &h));
+	/* truncated, corrupted pixel data (the zlib checksum fails), not a png */
+	CHECK(!pngdec_decode(data, 40, 3, 2, &w, &h));
+	data[45] ^= 0xff;
+	uint8_t *px = pngdec_decode(data, len, 3, 2, &w, &h);
+	CHECK(!px || (w == 3 && h == 2));
+	free(px);
+	CHECK(!pngdec_decode((const uint8_t *)"not a png file", 14, 100, 100, &w, &h));
+}
+
 static void test_webp(void)
 {
 	if (!webp_available()) {
@@ -463,6 +531,7 @@ int main(void)
 	test_lz4();
 	test_sha256();
 	test_cursor();
+	test_png();
 	test_webp();
 	if (failures) {
 		fprintf(stderr, "%d failure(s)\n", failures);
