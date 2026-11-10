@@ -9,7 +9,7 @@
 
 # The sha256 of the release tarball: this has to be updated for every new version.
 # It can be overridden for local test builds: rpmbuild --define "source_sha256 ..."
-%{!?source_sha256:%global source_sha256 FIXME-sha256sum-of-the-v0.1.0-release-tarball}
+%{!?source_sha256:%global source_sha256 4ab43dd7efb39169cd399d1319fb609ea5613c6df34e51c2e8c45c6d4ca318fb}
 
 Name:				c-xpra
 Version:			0.1.0
