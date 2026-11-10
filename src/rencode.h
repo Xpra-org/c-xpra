@@ -3,6 +3,7 @@
 #define RENCODE_H
 
 #include <stddef.h>
+#include <stdio.h>
 #include <stdint.h>
 
 #include "buf.h"
@@ -43,6 +44,8 @@ int rv_strcpy(const rv *v, char *dst, size_t dstlen);	/* str or bytes, returns 0
 int64_t rv_int(const rv *v, int64_t def);			/* int or bool */
 int rv_bool(const rv *v, int def);
 int rv_list_has_str(const rv *list, const char *s);
+/* print a value for logging: str as "..", bytes as b"..", [list], {key: value} */
+void rv_print(FILE *f, const rv *v);
 
 /* encoder */
 void enc_int(buf_t *b, int64_t v);

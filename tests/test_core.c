@@ -200,6 +200,32 @@ static void test_rencode_lookup(void)
 	buf_free(&b);
 }
 
+static void test_rencode_print(void)
+{
+	buf_t b = { 0 };
+	enc_list(&b, 7);
+	enc_str(&b, "a\"\n");
+	enc_bytes(&b, "\x01z", 2);
+	enc_int(&b, -5);
+	enc_bool(&b, 1);
+	enc_none(&b);
+	enc_list(&b, 0);
+	enc_dict(&b, 1);
+	enc_str(&b, "k");
+	enc_int(&b, 1);
+	rv *v = rv_decode(b.data, b.len);
+	char *out = NULL;
+	size_t len = 0;
+	FILE *f = open_memstream(&out, &len);
+	rv_print(f, v);
+	rv_print(f, NULL);
+	fclose(f);
+	CHECK(out && !strcmp(out, "[\"a\\\"\\x0a\", b\"\\x01z\", -5, True, None, [], {\"k\": 1}]None"));
+	free(out);
+	rv_free(v);
+	buf_free(&b);
+}
+
 static void test_float(void)
 {
 	/* 1.5 as binary64 */
@@ -278,6 +304,7 @@ int main(void)
 	test_rencode_strings();
 	test_rencode_containers();
 	test_rencode_lookup();
+	test_rencode_print();
 	test_float();
 	test_lz4();
 	test_sha256();

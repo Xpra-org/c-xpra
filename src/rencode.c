@@ -488,3 +488,66 @@ void enc_strlist(buf_t *b, const char *const *strs)
 		enc_end(b);
 	}
 }
+
+static void print_str(FILE *f, const rv *v)
+{
+	if (v->type == RV_BYTES)
+		fputc('b', f);
+	fputc('"', f);
+	for (size_t i = 0; i < v->u.s.len; i++) {
+		uint8_t c = v->u.s.p[i];
+		if (c == '"' || c == '\\')
+			fprintf(f, "\\%c", c);
+		else if (c >= 0x20 && c < 0x7f)
+			fputc(c, f);
+		else
+			fprintf(f, "\\x%02x", c);
+	}
+	fputc('"', f);
+}
+
+void rv_print(FILE *f, const rv *v)
+{
+	if (!v) {
+		fputs("None", f);
+		return;
+	}
+	switch (v->type) {
+	case RV_NONE:
+		fputs("None", f);
+		break;
+	case RV_BOOL:
+		fputs(v->u.i ? "True" : "False", f);
+		break;
+	case RV_INT:
+		fprintf(f, "%lld", (long long)v->u.i);
+		break;
+	case RV_FLOAT:
+		fprintf(f, "%g", v->u.f);
+		break;
+	case RV_STR:
+	case RV_BYTES:
+		print_str(f, v);
+		break;
+	case RV_LIST:
+		fputc('[', f);
+		for (size_t i = 0; i < v->u.l.n; i++) {
+			if (i)
+				fputs(", ", f);
+			rv_print(f, &v->u.l.items[i]);
+		}
+		fputc(']', f);
+		break;
+	case RV_DICT:
+		fputc('{', f);
+		for (size_t i = 0; i < v->u.l.n; i++) {
+			if (i)
+				fputs(", ", f);
+			rv_print(f, &v->u.l.items[2 * i]);
+			fputs(": ", f);
+			rv_print(f, &v->u.l.items[2 * i + 1]);
+		}
+		fputc('}', f);
+		break;
+	}
+}

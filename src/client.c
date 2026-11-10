@@ -222,6 +222,8 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 
 	enc_str(&b, "bell");
 	enc_bool(&b, 1);
+	enc_str(&b, "events");
+	enc_bool(&b, 1);
 	enc_str(&b, "keyboard");
 	enc_bool(&b, 1);
 	enc_str(&b, "modifiers");
@@ -535,6 +537,18 @@ static void handle_window_bell(rv *pk)
 	be_bell(w ? w->be : NULL, (int)percent);
 }
 
+static void handle_events(rv *pk)
+{
+	/* Protocol.md 7.1: name, values... - lifecycle notifications, only logged */
+	fputs("server event:", stdout);
+	for (size_t i = 1; i < rv_len(pk); i++) {
+		fputc(' ', stdout);
+		rv_print(stdout, rv_list_get(pk, i));
+	}
+	fputc('\n', stdout);
+	fflush(stdout);
+}
+
 static void handle_window_destroy(rv *pk)
 {
 	uint64_t wid = (uint64_t)rv_int(rv_list_get(pk, 1), 0);
@@ -678,6 +692,7 @@ static const handler_t HANDLERS[] = {
 	{ "window-destroy", handle_window_destroy, 1 },
 	{ "window-bell", handle_window_bell, 1 },
 	{ "window-draw", handle_window_draw, 1 },
+	{ "events", handle_events, 1 },
 };
 
 static void dispatch(rv *pk)
