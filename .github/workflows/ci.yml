@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Only the X11 backend exists so far, so Linux is the only platform.
+    # Both compilers are built because their warnings differ.
+    name: Test with ${{ matrix.cc }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc:
+          - gcc
+          - clang
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libx11-dev
+
+      # The build must stay free of warnings.
+      - name: Build
+        run: make CFLAGS="-Os -Werror" c-xpra tests/test_core
+
+      - name: Test
+        run: make CFLAGS="-Os -Werror" test
+
+      - name: Build stripped binary
+        run: |
+          make strip
+          ls -l c-xpra
+
+      - name: Test with AddressSanitizer
+        run: |
+          make clean
+          make asan
+          ./tests/test_core
