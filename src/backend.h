@@ -26,6 +26,8 @@ void be_window_size_constraints(be_window *win, int minw, int minh, int maxw, in
 void be_window_show(be_window *win);
 void be_window_move_resize(be_window *win, int x, int y, int w, int h);
 void be_window_raise(be_window *win);
+/* ring the bell for win (NULL: no window), percent is -100..100 relative to the base volume */
+void be_bell(be_window *win, int percent);
 void be_window_destroy(be_window *win);
 /* the backing store: 32-bit native endian 0x00RRGGBB pixels, stride in bytes */
 uint32_t *be_window_pixels(be_window *win, int *w, int *h, int *stride);

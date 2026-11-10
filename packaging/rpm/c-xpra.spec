@@ -30,7 +30,7 @@ BuildRequires:		pkgconfig(x11)
 %description
 c-xpra is a minimal Xpra client: it connects to an Xpra server over TCP or a
 local socket and shows the windows of a seamless session on the local X11
-display, forwarding pointer and keyboard input. It has no other dependency
+display, forwarding pointer and keyboard input and ringing the bell. It has no other dependency
 than libX11, and requires an Xpra 8.0 or later server.
 
 

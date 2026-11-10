@@ -220,6 +220,8 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	enc_str(&b, "transparency");
 	enc_bool(&b, 0);
 
+	enc_str(&b, "bell");
+	enc_bool(&b, 1);
 	enc_str(&b, "keyboard");
 	enc_bool(&b, 1);
 	enc_str(&b, "modifiers");
@@ -520,6 +522,19 @@ static void handle_window_raise(rv *pk)
 		be_window_raise(w->be);
 }
 
+static void handle_window_bell(rv *pk)
+{
+	/* Window.md: wid, device, percent (-100..100), pitch (Hz), duration (ms), class, id, name
+	 * only the volume is honoured, an unknown or zero wid rings the bell without a window */
+	win *w = find_window((uint64_t)rv_int(rv_list_get(pk, 1), 0));
+	int64_t percent = rv_int(rv_list_get(pk, 3), 0);
+	if (percent < -100)
+		percent = -100;
+	else if (percent > 100)
+		percent = 100;
+	be_bell(w ? w->be : NULL, (int)percent);
+}
+
 static void handle_window_destroy(rv *pk)
 {
 	uint64_t wid = (uint64_t)rv_int(rv_list_get(pk, 1), 0);
@@ -661,6 +676,7 @@ static const handler_t HANDLERS[] = {
 	{ "window-resized", handle_window_move_resize, 1 },
 	{ "window-raise", handle_window_raise, 1 },
 	{ "window-destroy", handle_window_destroy, 1 },
+	{ "window-bell", handle_window_bell, 1 },
 	{ "window-draw", handle_window_draw, 1 },
 };
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`c-xpra` is a minimal xpra client in C99. It shows the windows of an xpra session and forwards pointer and keyboard input, and nothing else. Its only dependencies are libc and libX11. The goal is a very small, simple executable (~36 KB stripped, ~20 KB with UPX).
+`c-xpra` is a minimal xpra client in C99. It shows the windows of an xpra session and forwards pointer and keyboard input and rings the bell, and nothing else. Its only dependencies are libc and libX11. The goal is a very small, simple executable (~36 KB stripped, ~20 KB with UPX).
 
 **Clean-room rule:** implement protocol behaviour ONLY from the xpra documentation in `~/projects/xpra/docs/`. Never read or copy the xpra source code. The most useful pages are:
 - `Porting/Minimal-Client.md`, `Porting/Handshake.md`, `Porting/Authentication.md` (with test vectors), `Porting/Transports.md`

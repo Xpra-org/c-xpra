@@ -233,6 +233,15 @@ void be_window_raise(be_window *w)
 	XRaiseWindow(dpy, w->xid);
 }
 
+void be_bell(be_window *w, int percent)
+{
+	/* XkbBell associates the bell with the window (for visual bells, urgency hints),
+	 * it fails without the XKB extension */
+	if (!XkbBell(dpy, w ? w->xid : None, percent, None))
+		XBell(dpy, percent);
+	XFlush(dpy);
+}
+
 void be_window_destroy(be_window *w)
 {
 	for (be_window **p = &windows; *p; p = &(*p)->next) {
