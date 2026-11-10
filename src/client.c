@@ -244,7 +244,7 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	enc_str(&b, "time");
 	enc_int(&b, 400);
 	enc_str(&b, "distance");
-	enc_int(&b, 5);
+	enc_pair(&b, 5, 5);	/* x, y: the server rejects a plain int */
 
 	if (response) {
 		enc_str(&b, "challenge_response");
