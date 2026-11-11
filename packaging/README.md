@@ -65,4 +65,7 @@ rpmbuild --define "source_sha256 $(sha256sum ~/rpmbuild/SOURCES/c-xpra-0.1.1.tar
   argument, so a menu launcher would only print its usage.
 * The only runtime dependency is libX11, found by the automatic dependency generators
   (`dh_shlibdeps`, rpm's ELF dependency generator). libXcursor (colour cursors), libpng
-  (`png` pictures and window icons) libwebp (`webp` pictures) and libturbojpeg (`jpeg` pictures) are optional and loaded with `dlopen`, so the generators do not see them.
+  (`png` pictures and window icons), libwebp (`webp` pictures) and libturbojpeg (`jpeg` pictures) are optional and loaded with `dlopen`, so the generators do not see them:
+  they are listed as `Recommends` instead. Debian and Ubuntu use different names for
+  some of them (`libpng16-16t64` since the 64-bit `time_t` transition, `libturbojpeg0` /
+  `libturbojpeg`), hence the alternatives in `debian/c-xpra/control`.

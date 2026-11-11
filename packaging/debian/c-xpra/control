@@ -16,6 +16,11 @@ Architecture: any
 Depends:
  ${shlibs:Depends},
  ${misc:Depends},
+Recommends:
+ libxcursor1,
+ libpng16-16t64 | libpng16-16,
+ libwebp7,
+ libturbojpeg0 | libturbojpeg,
 Description: minimal Xpra client written in C
  c-xpra connects to an Xpra server over TCP or a local socket and shows the
  windows of a seamless session on the local X11 display, forwarding pointer

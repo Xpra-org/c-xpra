@@ -26,6 +26,12 @@ Source0:			%{url}/archive/refs/tags/v%{version}.tar.gz#/%{name}-%{version}.tar.g
 BuildRequires:		gcc
 BuildRequires:		make
 BuildRequires:		pkgconfig(x11)
+# loaded with dlopen, so the ELF dependency generator does not see them:
+# colour cursors, png pictures and window icons, webp pictures, jpeg pictures
+Recommends:			libXcursor%{?_isa}
+Recommends:			libpng%{?_isa}
+Recommends:			libwebp%{?_isa}
+Recommends:			turbojpeg%{?_isa}
 
 %if 0%{?el8}
 # glibc 2.28: dlopen and dlsym are still in libdl
