@@ -7,7 +7,7 @@ It shows the windows of a seamless session with their icons, and the application
 and rings the bell. Server events and notifications are printed on stdout. Nothing else: no audio, clipboard, tray, file transfers, ...
 
 Dependencies: libc and libX11. Colour cursors use libXcursor when it is installed (loaded at runtime),
-otherwise they are shown in black and white. The `png` and `webp` picture encodings use libpng and libwebp
+otherwise they are shown in black and white. The `png`, `webp` and `jpeg` picture encodings use libpng, libwebp and libturbojpeg
 when they are installed (also loaded at runtime), and are not offered to the server otherwise. Window icons need libpng. LZ4 decompression, rencodeplus and
 HMAC-SHA256 are built in.
 
@@ -43,7 +43,7 @@ Only `hmac+sha256` authentication is implemented: use TLS / SSH tunnels on untru
 | Transports | TCP, Unix domain sockets |
 | Records | rencodeplus, LZ4-compressed records, raw chunks (sends uncompressed) |
 | Auth | `hmac+sha256` challenge / response |
-| Pictures | `rgb24` / `rgb32` in any `RGB`/`BGR`/`RGBX`/`BGRX`/`RGBA`/`BGRA` order, raw or LZ4; `png`, `png/P`, `png/L` with libpng; `webp` (lossy or lossless) with libwebp |
+| Pictures | `rgb24` / `rgb32` in any `RGB`/`BGR`/`RGBX`/`BGRX`/`RGBA`/`BGRA` order, raw or LZ4; `png`, `png/P`, `png/L` with libpng; `webp` (lossy or lossless) with libwebp; `jpeg` with libturbojpeg |
 | Windows | create, map, configure, move-resize, resized, metadata (title, transient-for, size-constraints), `png` icons with libpng, raise, close, destroy, override-redirect popups |
 | Input | focus, pointer motion / buttons, `pointer-wheel` (button pairs for servers without `wheel.precise` / `wheel.emulation`), keyboard events with X11 keysym names and modifiers |
 | Session | ping / ping-echo, draw acknowledgements, connection-close |
@@ -57,6 +57,7 @@ Only `hmac+sha256` authentication is implemented: use TLS / SSH tunnels on untru
 | `src/sha256.c` | SHA-256, HMAC |
 | `src/pngdec.c` | `png` decoding through libpng, loaded at runtime |
 | `src/webp.c` | `webp` decoding through libwebp, loaded at runtime |
+| `src/jpeg.c` | `jpeg` decoding through libturbojpeg, loaded at runtime |
 | `src/net.c` | connection, record layer |
 | `src/client.c` | handshake, authentication, packet handlers |
 | `src/backend.h` | platform backend interface |

@@ -19,6 +19,7 @@
 #include "sha256.h"
 #include "lz4.h"
 #include "pngdec.h"
+#include "jpeg.h"
 #include "webp.h"
 
 #define PROTOCOL_MAJOR 8
@@ -147,13 +148,14 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	static const char *const encoders[] = { "rencodeplus", NULL };
 	static const char *const compressors[] = { "lz4", "none", NULL };
 	static const char *const digests[] = { AUTH_DIGEST, NULL };
-	/* png and webp are only advertised when libpng / libwebp can be loaded */
-	static const char *const pictures[] = { "png", "png/P", "png/L", "webp" };
-	int png = pngdec_available(), webp = webp_available();
-	const char *enc_options[6] = { "rgb" }, *enc_core[7] = { "rgb24", "rgb32" };
+	/* png, webp and jpeg are only advertised when libpng / libwebp / libturbojpeg can be loaded */
+	static const char *const pictures[] = { "png", "png/P", "png/L", "webp", "jpeg" };
+	int png = pngdec_available();
+	const int have[] = { png, png, png, webp_available(), jpeg_available() };
+	const char *enc_options[7] = { "rgb" }, *enc_core[8] = { "rgb24", "rgb32" };
 	size_t no = 1, nc = 2;
-	for (size_t i = 0; i < 4; i++) {
-		if (i < 3 ? png : webp)
+	for (size_t i = 0; i < 5; i++) {
+		if (have[i])
 			enc_options[no++] = enc_core[nc++] = pictures[i];
 	}
 	static const char *const rgb_formats[] = { "BGRX", "BGRA", "RGBX", "RGBA", "BGR", "RGB", NULL };
@@ -740,12 +742,14 @@ static picture_decoder find_decoder(const char *encoding)
 {
 	if (!strcmp(encoding, "webp"))
 		return webp_decode;
+	if (!strcmp(encoding, "jpeg"))
+		return jpeg_decode;
 	if (!strcmp(encoding, "png") || !strcmp(encoding, "png/P") || !strcmp(encoding, "png/L"))
 		return pngdec_decode;
 	return NULL;
 }
 
-/* paint a png or webp picture, which may have been encoded at a smaller size (scaled_size)
+/* paint a png, webp or jpeg picture, which may have been encoded at a smaller size (scaled_size)
  * returns 0 on success, -1 on decoding error */
 static int paint_picture(win *w, int x, int y, int width, int height, rv *data, picture_decoder decode)
 {

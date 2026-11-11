@@ -10,6 +10,7 @@
 #include "pngdec.h"
 #include "sha256.h"
 #include "webp.h"
+#include "jpeg.h"
 
 static int failures;
 
@@ -476,6 +477,46 @@ static void test_png(void)
 	CHECK(!pngdec_decode((const uint8_t *)"not a png file", 14, 100, 100, &w, &h));
 }
 
+static void test_jpeg(void)
+{
+	if (!jpeg_available()) {
+		printf("libturbojpeg not found, skipping the jpeg tests\n");
+		return;
+	}
+	uint8_t data[512];
+	size_t len;
+	int w = 0, h = 0;
+	/* 16x8 baseline 4:2:0, a solid #c86432 */
+	unhex("ffd8ffe000104a46494600010100000100010000ffdb0043000302020302020303030304030304050805050404050a070706"
+	      "080c0a0c0c0b0a0b0b0d0e12100d0e110e0b0b1016101113141515150c0f171816141812141514ffdb004301030404050405"
+	      "09050509140d0b0d141414141414141414141414141414141414141414141414141414141414141414141414141414141414"
+	      "1414141414141414ffc00011080008001003012200021101031101ffc4001500010100000000000000000000000000000004"
+	      "ffc40014100100000000000000000000000000000000ffc4001501010100000000000000000000000000000708ffc4001411"
+	      "0100000000000000000000000000000000ffda000c03010002110311003f0090007a907fffd9", data, &len);
+	uint8_t *px = jpeg_decode(data, len, 16, 8, &w, &h);
+	CHECK(px && w == 16 && h == 8);
+	if (px) {
+		int close = 1;
+		for (int i = 0; i < 16 * 8 * 4; i += 4)
+			close &= abs(px[i] - 50) < 8 && abs(px[i + 1] - 100) < 8 && abs(px[i + 2] - 200) < 8 && px[i + 3] == 255;
+		CHECK(close);
+	}
+	free(px);
+	/* larger than the draw area */
+	CHECK(!jpeg_decode(data, len, 15, 8, &w, &h));
+	CHECK(!jpeg_decode(data, len, 16, 7, &w, &h));
+	/* truncated before the frame header, then inside the scan, then corrupted */
+	CHECK(!jpeg_decode(data, 100, 16, 8, &w, &h));
+	px = jpeg_decode(data, len - 6, 16, 8, &w, &h);
+	CHECK(!px || (w == 16 && h == 8));
+	free(px);
+	data[len - 5] ^= 0xff;
+	px = jpeg_decode(data, len, 16, 8, &w, &h);
+	CHECK(!px || (w == 16 && h == 8));
+	free(px);
+	CHECK(!jpeg_decode((const uint8_t *)"not a jpeg file", 15, 100, 100, &w, &h));
+}
+
 static void test_webp(void)
 {
 	if (!webp_available()) {
@@ -533,6 +574,7 @@ int main(void)
 	test_cursor();
 	test_png();
 	test_webp();
+	test_jpeg();
 	if (failures) {
 		fprintf(stderr, "%d failure(s)\n", failures);
 		return 1;

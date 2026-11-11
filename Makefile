@@ -16,7 +16,7 @@ REQ_LDFLAGS = -Wl,--gc-sections
 LIBS = -lX11
 # extra libraries, ie: LDLIBS=-ldl for dlopen before glibc 2.34 (see the RPM spec)
 
-CORE = src/buf.c src/rencode.c src/lz4.c src/sha256.c src/cursor.c src/pngdec.c src/webp.c
+CORE = src/buf.c src/rencode.c src/lz4.c src/sha256.c src/cursor.c src/pngdec.c src/webp.c src/jpeg.c
 SRCS = $(CORE) src/net.c src/client.c src/x11.c src/main.c
 TESTS = tests/test_core
 
