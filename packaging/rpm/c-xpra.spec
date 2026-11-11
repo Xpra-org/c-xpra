@@ -12,15 +12,15 @@
 %{!?source_sha256:%global source_sha256 e8c2618132edc9d4f90d0345e961f5ab3caeb65a956b6c077e85c1b4e7da32e4}
 
 Name:				c-xpra
-Version:			0.1.1
+Version:			0.2.0
 Release:			1%{?dist}
 Summary:			Minimal Xpra client written in C
 License:			MIT
 URL:				https://github.com/Xpra-org/c-xpra
 Packager:			Antoine Martin <antoine@xpra.org>
 Vendor:				https://xpra.org/
-# the "Source code (tar.gz)" of https://github.com/Xpra-org/c-xpra/releases/tag/v0.1.1;
-# the `#/` fragment renames the github archive to something less ambiguous than `v0.1.1.tar.gz`
+# the "Source code (tar.gz)" of https://github.com/Xpra-org/c-xpra/releases/tag/v0.2.0;
+# the `#/` fragment renames the github archive to something less ambiguous than `v0.2.0.tar.gz`
 Source0:			%{url}/archive/refs/tags/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
 
 BuildRequires:		gcc
@@ -82,6 +82,14 @@ make test %{?make_libs}
 
 
 %changelog
+* Wed Nov 11 2026 Antoine Martin <antoine@xpra.org> 0.2.0-1
+- Features:
+   text clipboard sharing (CLIPBOARD and PRIMARY selections), using libXfixes
+   jpeg pictures, when libturbojpeg is installed
+- Platforms, build and packaging:
+   recommend the optional libraries loaded at runtime: libXcursor, libpng, libwebp and turbojpeg
+   link libdl on el8, where dlopen is not yet part of libc
+
 * Tue Nov 10 2026 Antoine Martin <antoine@xpra.org> 0.1.1-1
 - Features:
    png and webp pictures, when libpng / libwebp are installed

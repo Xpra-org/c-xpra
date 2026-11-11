@@ -25,7 +25,7 @@
 
 #define PROTOCOL_MAJOR 8
 #define PROTOCOL_MINOR 0
-#define CLIENT_VERSION "0.1.1"
+#define CLIENT_VERSION "0.2.0"
 #define AUTH_DIGEST "hmac+sha256"
 
 /* the largest window icon accepted (the server scales them down to 64x64 by default) */
