@@ -28,7 +28,9 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libx11-dev libpng-dev libwebp7 libturbojpeg
+          # The TurboJPEG runtime package name varies between Ubuntu releases.
+          sudo apt-get satisfy -y --no-install-recommends \
+            'libx11-dev, libpng-dev, libwebp7, libturbojpeg0 | libturbojpeg'
 
       # The build must stay free of warnings.
       - name: Build
