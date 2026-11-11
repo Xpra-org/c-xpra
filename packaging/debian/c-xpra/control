@@ -5,6 +5,7 @@ Maintainer: Antoine Martin <antoine@xpra.org>
 Build-Depends:
  debhelper-compat (= 13),
  libx11-dev,
+ libxfixes-dev,
 Standards-Version: 4.7.2
 Homepage: https://github.com/Xpra-org/c-xpra
 Vcs-Git: https://github.com/Xpra-org/c-xpra.git
@@ -24,7 +25,7 @@ Recommends:
 Description: minimal Xpra client written in C
  c-xpra connects to an Xpra server over TCP or a local socket and shows the
  windows of a seamless session on the local X11 display, forwarding pointer
- and keyboard input and ringing the bell. It has no other dependency than
- libX11.
+ and keyboard input, ringing the bell and sharing the text clipboard. It has
+ no other dependency than libX11 and libXfixes.
  .
  It requires an Xpra 8.0 or later server.

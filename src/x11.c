@@ -3,13 +3,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include <X11/XKBlib.h>
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/extensions/Xfixes.h>
 
 #include "backend.h"
+#include "clipboard.h"
 
 struct be_window {
 	Window xid;
@@ -61,6 +64,295 @@ static void read_layout(void)
 	XFree(data);
 }
 
+/* -------------------------------------------------------------- clipboard
+ * ICCCM selections, text only and without INCR transfers: our hidden window owns the
+ * selections on behalf of the server, XFixes tells us when a local application takes them */
+
+#define CLIP_SLOTS 8
+#define CLIP_TIMEOUT_MS 2500	/* Clipboard.md: how long a peer waits for an answer */
+
+/* a conversion we asked a local owner for, or a local request waiting for the server */
+typedef struct {
+	int used;
+	uint64_t id;
+	int sel;
+	int64_t deadline;
+	Atom target, property;
+	Window requestor;	/* parked requests only */
+	Time time;
+} clip_slot;
+
+static int xfixes_event = -1;	/* -1: no clipboard */
+static Window clip_win;
+static Atom sel_atoms[SEL_COUNT], targets_atom, text_atom, slot_props[CLIP_SLOTS];
+static Atom text_atoms[5];	/* the CLIP_TARGETS, in order */
+static int clip_owned[SEL_COUNT];
+static size_t clip_max;		/* also limited by the X11 request size */
+static clip_slot fetches[CLIP_SLOTS], parked[CLIP_SLOTS];
+static uint64_t parked_id;
+
+static int64_t now_ms(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static void clip_init(void)
+{
+	int ev, err, major = 2, minor = 0;
+	if (!XFixesQueryExtension(dpy, &ev, &err) || !XFixesQueryVersion(dpy, &major, &minor) || major < 1)
+		return;
+	static const char *names[] = { "CLIPBOARD", "PRIMARY", "TARGETS" };
+	Atom a[3];
+	XInternAtoms(dpy, (char **)names, 3, False, a);
+	sel_atoms[SEL_CLIPBOARD] = a[0];
+	sel_atoms[SEL_PRIMARY] = a[1];
+	targets_atom = a[2];
+	XInternAtoms(dpy, (char **)CLIP_TARGETS, 5, False, text_atoms);
+	text_atom = text_atoms[1];
+	char pnames[CLIP_SLOTS][16], *pp[CLIP_SLOTS];
+	for (int i = 0; i < CLIP_SLOTS; i++) {
+		snprintf(pnames[i], sizeof(pnames[i]), "C_XPRA_CLIP%d", i);
+		pp[i] = pnames[i];
+	}
+	XInternAtoms(dpy, pp, CLIP_SLOTS, False, slot_props);
+	long req = XExtendedMaxRequestSize(dpy);
+	if (!req)
+		req = XMaxRequestSize(dpy);
+	clip_max = (size_t)req * 4 - 64;	/* minus the ChangeProperty header */
+	if (clip_max > CLIP_MAX)
+		clip_max = CLIP_MAX;
+	clip_win = XCreateWindow(dpy, RootWindow(dpy, screen), -1, -1, 1, 1, 0, 0, InputOnly,
+				 CopyFromParent, 0, NULL);
+	for (int i = 0; i < SEL_COUNT; i++)
+		XFixesSelectSelectionInput(dpy, clip_win, sel_atoms[i], XFixesSetSelectionOwnerNotifyMask);
+	xfixes_event = ev + XFixesSelectionNotify;
+}
+
+int be_clipboard_available(void)
+{
+	return xfixes_event >= 0;
+}
+
+static int sel_index(Atom a)
+{
+	for (int i = 0; i < SEL_COUNT; i++)
+		if (sel_atoms[i] == a)
+			return i;
+	return -1;
+}
+
+static int is_text_atom(Atom a)
+{
+	for (int i = 0; i < 5; i++)
+		if (text_atoms[i] == a)
+			return 1;
+	return 0;
+}
+
+static clip_slot *free_slot(clip_slot *slots)
+{
+	for (int i = 0; i < CLIP_SLOTS; i++)
+		if (!slots[i].used)
+			return &slots[i];
+	return NULL;
+}
+
+void be_clipboard_announce(void)
+{
+	for (int i = 0; xfixes_event >= 0 && i < SEL_COUNT; i++) {
+		Window owner = XGetSelectionOwner(dpy, sel_atoms[i]);
+		if (owner != None && owner != clip_win)
+			client_on_clipboard_owner(i);
+	}
+}
+
+void be_clipboard_claim(int sel)
+{
+	if (xfixes_event < 0)
+		return;
+	XSetSelectionOwner(dpy, sel_atoms[sel], clip_win, CurrentTime);
+	clip_owned[sel] = XGetSelectionOwner(dpy, sel_atoms[sel]) == clip_win;
+}
+
+static void convert(clip_slot *s, Atom target)
+{
+	s->target = target;
+	XConvertSelection(dpy, sel_atoms[s->sel], target, s->property, clip_win, CurrentTime);
+}
+
+void be_clipboard_fetch(uint64_t id, int sel)
+{
+	clip_slot *s = xfixes_event >= 0 ? free_slot(fetches) : NULL;
+	if (!s) {
+		client_on_clipboard_data(id, sel, NULL, 0);
+		return;
+	}
+	*s = (clip_slot){ .used = 1, .id = id, .sel = sel, .deadline = now_ms() + CLIP_TIMEOUT_MS,
+			  .property = slot_props[s - fetches] };
+	convert(s, utf8_string);
+}
+
+/* the answer to one of our XConvertSelection requests */
+static void clip_converted(XSelectionEvent *e)
+{
+	clip_slot *s = NULL;
+	for (int i = 0; i < CLIP_SLOTS && !s; i++) {
+		clip_slot *f = &fetches[i];
+		if (f->used && sel_atoms[f->sel] == e->selection && f->target == e->target &&
+		    (e->property == None || e->property == f->property))
+			s = f;
+	}
+	if (!s)
+		return;
+	if (e->property == None && s->target == utf8_string) {
+		convert(s, XA_STRING);	/* an older application: try Latin-1 */
+		return;
+	}
+	char *text = NULL;
+	size_t len = 0;
+	if (e->property != None) {
+		Atom type;
+		int fmt;
+		unsigned long n, after;
+		unsigned char *data = NULL;
+		if (XGetWindowProperty(dpy, clip_win, s->property, 0, (long)(clip_max + 3) / 4, True,
+				       AnyPropertyType, &type, &fmt, &n, &after, &data) == Success &&
+		    data && fmt == 8 && !after && (type == utf8_string || type == XA_STRING)) {
+			if (type == XA_STRING)
+				text = clip_latin1_to_utf8(data, n, &len);
+			else if ((text = malloc(n + 1))) {
+				memcpy(text, data, n);
+				len = n;
+			}
+		}
+		if (data)
+			XFree(data);
+		/* INCR and oversized transfers are not supported: discard what is left */
+		XDeleteProperty(dpy, clip_win, s->property);
+	}
+	s->used = 0;
+	client_on_clipboard_data(s->id, s->sel, text, len);
+	free(text);
+}
+
+static void selection_notify(Window requestor, Atom selection, Atom target, Atom property, Time time)
+{
+	XEvent ev = { .xselection = { .type = SelectionNotify, .display = dpy, .requestor = requestor,
+				      .selection = selection, .target = target, .property = property,
+				      .time = time } };
+	XSendEvent(dpy, requestor, False, NoEventMask, &ev);
+}
+
+/* a local application wants the contents of a selection we own */
+static void clip_request(XSelectionRequestEvent *e)
+{
+	int sel = sel_index(e->selection);
+	/* obsolete clients do not name a property: use the target */
+	Atom property = e->property != None ? e->property : e->target;
+	clip_slot *s = NULL;
+	if (sel >= 0 && clip_owned[sel] && e->target == targets_atom) {
+		Atom targets[6] = { targets_atom };
+		memcpy(targets + 1, text_atoms, sizeof(text_atoms));
+		XChangeProperty(dpy, e->requestor, property, XA_ATOM, 32, PropModeReplace,
+				(unsigned char *)targets, 6);
+	} else if (sel >= 0 && clip_owned[sel] && is_text_atom(e->target) && (s = free_slot(parked))) {
+		*s = (clip_slot){ .used = 1, .id = ++parked_id, .sel = sel, .target = e->target,
+				  .property = property, .requestor = e->requestor, .time = e->time,
+				  .deadline = now_ms() + CLIP_TIMEOUT_MS };
+		client_on_clipboard_want(s->id, sel);
+		return;
+	} else {
+		property = None;	/* refused */
+	}
+	selection_notify(e->requestor, e->selection, e->target, property, e->time);
+}
+
+void be_clipboard_reply(uint64_t id, const char *utf8, size_t len)
+{
+	clip_slot *p = NULL;
+	for (int i = 0; i < CLIP_SLOTS && !p; i++)
+		if (parked[i].used && parked[i].id == id)
+			p = &parked[i];
+	if (!p)
+		return;
+	p->used = 0;
+	char *latin1 = NULL;
+	if (utf8 && p->target == XA_STRING)
+		utf8 = latin1 = clip_utf8_to_latin1((const uint8_t *)utf8, len, &len);
+	if (!utf8 || len > clip_max) {
+		selection_notify(p->requestor, sel_atoms[p->sel], p->target, None, p->time);
+	} else {
+		/* TEXT lets the owner pick the type */
+		Atom type = p->target == text_atom ? utf8_string : p->target;
+		XChangeProperty(dpy, p->requestor, p->property, type, 8, PropModeReplace,
+				(const unsigned char *)utf8, (int)len);
+		selection_notify(p->requestor, sel_atoms[p->sel], p->target, p->property, p->time);
+	}
+	free(latin1);
+	XFlush(dpy);
+}
+
+int be_clipboard_timeout(void)
+{
+	int64_t now = now_ms(), next = -1;
+	for (int i = 0; i < CLIP_SLOTS; i++) {
+		const clip_slot *s[2] = { &fetches[i], &parked[i] };
+		for (int k = 0; k < 2; k++)
+			if (s[k]->used && (next < 0 || s[k]->deadline < next))
+				next = s[k]->deadline;
+	}
+	return next < 0 ? -1 : next <= now ? 0 : (int)(next - now);
+}
+
+static void clip_expire(void)
+{
+	int64_t now = now_ms();
+	for (int i = 0; i < CLIP_SLOTS; i++) {
+		if (fetches[i].used && fetches[i].deadline <= now) {
+			fetches[i].used = 0;
+			client_on_clipboard_data(fetches[i].id, fetches[i].sel, NULL, 0);
+		}
+		if (parked[i].used && parked[i].deadline <= now)
+			be_clipboard_reply(parked[i].id, NULL, 0);
+	}
+}
+
+/* returns 1 if the event was for the clipboard */
+static int clip_event(XEvent *ev)
+{
+	if (xfixes_event < 0)
+		return 0;
+	if (ev->type == xfixes_event) {
+		XFixesSelectionNotifyEvent *e = (XFixesSelectionNotifyEvent *)ev;
+		int sel = sel_index(e->selection);
+		if (sel >= 0 && e->owner != clip_win) {
+			clip_owned[sel] = 0;
+			if (e->owner != None)
+				client_on_clipboard_owner(sel);
+		}
+		return 1;
+	}
+	if (ev->xany.window != clip_win)
+		return 0;
+	switch (ev->type) {
+	case SelectionNotify:
+		clip_converted(&ev->xselection);
+		break;
+	case SelectionRequest:
+		clip_request(&ev->xselectionrequest);
+		break;
+	case SelectionClear: {
+		int sel = sel_index(ev->xselectionclear.selection);
+		if (sel >= 0)
+			clip_owned[sel] = 0;
+		break;
+	}
+	}
+	return 1;
+}
+
 int be_init(const char *display_name)
 {
 	dpy = XOpenDisplay(display_name);
@@ -98,6 +390,7 @@ int be_init(const char *display_name)
 	/* no fake release events for auto-repeat */
 	XkbSetDetectableAutoRepeat(dpy, True, NULL);
 	read_layout();
+	clip_init();
 	return 0;
 }
 
@@ -406,6 +699,8 @@ static unsigned buttons_from_state(unsigned state)
 
 static void handle_event(XEvent *ev)
 {
+	if (clip_event(ev))
+		return;
 	be_window *w = find(ev->xany.window);
 	if (!w)
 		return;
@@ -473,5 +768,6 @@ void be_process_events(void)
 		XNextEvent(dpy, &ev);
 		handle_event(&ev);
 	}
+	clip_expire();
 	XFlush(dpy);
 }

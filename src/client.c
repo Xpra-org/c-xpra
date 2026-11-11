@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include "backend.h"
+#include "clipboard.h"
 #include "cursor.h"
 #include "rencode.h"
 #include "sha256.h"
@@ -51,6 +52,10 @@ static struct {
 	int done;
 	uint64_t focused;
 	win *windows;
+	/* clipboard: the directions the server allows, and the selections it synchronizes */
+	int clip_enabled, clip_to_server, clip_to_client;
+	unsigned clip_sels;
+	char clip_origin[17];	/* of our last clipboard-data, to detect loops */
 } C;
 
 static volatile sig_atomic_t quit_signal;
@@ -273,6 +278,18 @@ static void send_hello(const uint8_t *response, size_t rlen, const uint8_t *clie
 	enc_strlist(&b, cursor_encodings);
 	enc_str(&b, "max");
 	enc_pair(&b, CURSOR_MAX, CURSOR_MAX);
+	if (be_clipboard_available()) {
+		/* not greedy: the contents are only sent when requested */
+		static const char *const selections[] = { "CLIPBOARD", "PRIMARY", NULL };
+		enc_str(&b, "clipboard");
+		enc_dict(&b, 3);
+		enc_str(&b, "enabled");
+		enc_bool(&b, 1);
+		enc_str(&b, "selections");
+		enc_strlist(&b, selections);
+		enc_str(&b, "preferred-targets");
+		enc_strlist(&b, CLIP_TARGETS);
+	}
 
 	if (response) {
 		enc_str(&b, "challenge_response");
@@ -411,6 +428,16 @@ static void handle_hello(rv *pk)
 	C.readonly = rv_bool(rv_lookup(caps, "readonly"), 0);
 	C.wheel = rv_bool(rv_lookup(caps, "wheel.precise"), 0) || rv_bool(rv_lookup(caps, "wheel.emulation"), 0);
 	C.connected = 1;
+	rv *clip = rv_dict_get(caps, "clipboard");
+	if (be_clipboard_available() && clip && clip->type == RV_DICT) {
+		char dir[16] = "both";
+		rv_strcpy(rv_dict_get(clip, "direction"), dir, sizeof(dir));
+		C.clip_to_server = !strcmp(dir, "both") || !strcmp(dir, "to-server");
+		C.clip_to_client = !strcmp(dir, "both") || !strcmp(dir, "to-client");
+		C.clip_sels = (1u << SEL_COUNT) - 1;
+		C.clip_enabled = 1;
+		be_clipboard_announce();
+	}
 	if (C.opts->password && !C.challenged)
 		fprintf(stderr, "warning: the server did not verify the password\n");
 	char mode[64] = "", name[256] = "";
@@ -663,6 +690,115 @@ static void handle_cursor_default(rv *pk)
 	be_cursor(NULL, 0, 0, 0, 0);
 }
 
+/* -------------------------------------------------------------- clipboard */
+
+/* is the selection synchronized in this direction? */
+static int clip_ok(int sel, int direction)
+{
+	return C.clip_enabled && direction && sel >= 0 && (C.clip_sels & (1u << sel));
+}
+
+static void send_clip_none(uint64_t id, int sel)
+{
+	buf_t b = { 0 };
+	enc_list(&b, 3);
+	enc_str(&b, "clipboard-contents-none");
+	enc_int(&b, (int64_t)id);
+	enc_str(&b, clip_selection_name(sel));
+	send_packet(&b);
+}
+
+/* the start of a clipboard-contents packet: the data and the truncated count must follow */
+static void enc_clip_contents(buf_t *b, uint64_t id, int sel, const char *type, int format, const char *wire)
+{
+	enc_list(b, 8);
+	enc_str(b, "clipboard-contents");
+	enc_int(b, (int64_t)id);
+	enc_str(b, clip_selection_name(sel));
+	enc_str(b, type);
+	enc_int(b, format);
+	enc_str(b, wire);
+}
+
+static void handle_clipboard_data(rv *pk)
+{
+	/* selection, options: the server's application took ownership */
+	int sel = clip_selection(rv_list_get(pk, 1));
+	rv *opts = rv_list_get(pk, 2);
+	if (!clip_ok(sel, C.clip_to_client))
+		return;
+	char origin[65] = "";
+	rv_strcpy(rv_dict_get(opts, "origin"), origin, sizeof(origin));
+	if (origin[0] && !strcmp(origin, C.clip_origin))
+		return;	/* our own announcement, coming back */
+	rv *targets = rv_dict_get(opts, "targets");
+	int text = !targets || !rv_len(targets);
+	for (size_t i = 0; !text && i < rv_len(targets); i++)
+		text = clip_is_text_target(rv_list_get(targets, i));
+	if (text && rv_bool(rv_dict_get(opts, "claim"), 1))
+		be_clipboard_claim(sel);
+}
+
+static void handle_clipboard_request(rv *pk)
+{
+	/* request-id, selection, target: the server's application wants our text */
+	rv *rid = rv_list_get(pk, 1), *target = rv_list_get(pk, 3);
+	int sel = clip_selection(rv_list_get(pk, 2));
+	if (!rid || rid->type != RV_INT || sel < 0)
+		return;
+	uint64_t id = (uint64_t)rid->u.i;
+	if (!clip_ok(sel, C.clip_to_server) || C.readonly)
+		send_clip_none(id, sel);
+	else if (clip_is_text_target(target))
+		be_clipboard_fetch(id, sel);
+	else if (rv_is_str(target, "TARGETS")) {
+		buf_t b = { 0 };
+		enc_clip_contents(&b, id, sel, "ATOM", 32, "atoms");
+		enc_strlist(&b, CLIP_TARGETS);
+		enc_int(&b, 0);
+		send_packet(&b);
+	} else
+		send_clip_none(id, sel);
+}
+
+static void handle_clipboard_contents(rv *pk)
+{
+	uint64_t id = (uint64_t)rv_int(rv_list_get(pk, 1), 0);
+	const uint8_t *data = NULL;
+	size_t len = 0;
+	int latin1 = 0;
+	const char *err = "";
+	if (clip_contents(pk, &data, &len, &latin1, &err)) {
+		fprintf(stderr, "invalid clipboard-contents: %s\n", err);
+		be_clipboard_reply(id, NULL, 0);
+		return;
+	}
+	char *utf8 = latin1 ? clip_latin1_to_utf8(data, len, &len) : NULL;
+	be_clipboard_reply(id, latin1 ? utf8 : (const char *)data, len);
+	free(utf8);
+}
+
+static void handle_clipboard_contents_none(rv *pk)
+{
+	be_clipboard_reply((uint64_t)rv_int(rv_list_get(pk, 1), 0), NULL, 0);
+}
+
+static void handle_clipboard_status(rv *pk)
+{
+	C.clip_enabled = rv_bool(rv_list_get(pk, 1), 0);
+}
+
+static void handle_clipboard_enable_selections(rv *pk)
+{
+	rv *sels = rv_list_get(pk, 1);
+	C.clip_sels = 0;
+	for (size_t i = 0; i < rv_len(sels); i++) {
+		int sel = clip_selection(rv_list_get(sels, i));
+		if (sel >= 0)
+			C.clip_sels |= 1u << sel;
+	}
+}
+
 /* copy a sw x sh picture to the width x height area at x, y of the window's backing store,
  * upscaling it (nearest neighbour) when it is smaller.
  * pixels have bpp bytes, with red, green and blue at offsets ri, gi and bi */
@@ -842,6 +978,12 @@ static const handler_t HANDLERS[] = {
 	{ "events", handle_events, 1 },
 	{ "notification-show", handle_notification_show, 1 },
 	{ "notification-close", handle_notification_close, 1 },
+	{ "clipboard-data", handle_clipboard_data, 1 },
+	{ "clipboard-request", handle_clipboard_request, 1 },
+	{ "clipboard-contents", handle_clipboard_contents, 1 },
+	{ "clipboard-contents-none", handle_clipboard_contents_none, 1 },
+	{ "clipboard-status", handle_clipboard_status, 1 },
+	{ "clipboard-enable-selections", handle_clipboard_enable_selections, 1 },
 };
 
 static void dispatch(rv *pk)
@@ -1013,6 +1155,56 @@ void client_on_key(uint64_t wid, const char *keyname, int pressed, unsigned mods
 	send_packet(&b);
 }
 
+void client_on_clipboard_owner(int sel)
+{
+	if (!C.connected || !clip_ok(sel, C.clip_to_server) || C.readonly)
+		return;
+	uint8_t r[8];
+	random_bytes(r, sizeof(r));
+	tohex(r, sizeof(r), C.clip_origin);
+	/* announce only: the server requests the contents when they are pasted */
+	buf_t b = { 0 };
+	enc_list(&b, 3);
+	enc_str(&b, "clipboard-data");
+	enc_str(&b, clip_selection_name(sel));
+	enc_dict(&b, 2);
+	enc_str(&b, "claim");
+	enc_bool(&b, 1);
+	enc_str(&b, "origin");
+	enc_str(&b, C.clip_origin);
+	send_packet(&b);
+}
+
+void client_on_clipboard_want(uint64_t id, int sel)
+{
+	if (!C.connected || !clip_ok(sel, C.clip_to_client)) {
+		be_clipboard_reply(id, NULL, 0);
+		return;
+	}
+	buf_t b = { 0 };
+	enc_list(&b, 4);
+	enc_str(&b, "clipboard-request");
+	enc_int(&b, (int64_t)id);
+	enc_str(&b, clip_selection_name(sel));
+	enc_str(&b, "UTF8_STRING");
+	send_packet(&b);
+}
+
+void client_on_clipboard_data(uint64_t id, int sel, const char *utf8, size_t len)
+{
+	if (!C.connected)
+		return;
+	if (!utf8) {
+		send_clip_none(id, sel);
+		return;
+	}
+	buf_t b = { 0 };
+	enc_clip_contents(&b, id, sel, "UTF8_STRING", 8, "bytes");
+	enc_bytes(&b, utf8, len);
+	enc_int(&b, 0);
+	send_packet(&b);
+}
+
 /* --------------------------------------------------------------- main loop */
 
 static void on_signal(int sig)
@@ -1048,7 +1240,7 @@ int client_run(const client_opts *opts)
 			{ .fd = C.conn.fd, .events = POLLIN },
 			{ .fd = be_fd(), .events = POLLIN },
 		};
-		int r = poll(fds, fds[1].fd >= 0 ? 2 : 1, -1);
+		int r = poll(fds, fds[1].fd >= 0 ? 2 : 1, be_clipboard_timeout());
 		if (quit_signal) {
 			buf_t b = { 0 };
 			enc_list(&b, 2);

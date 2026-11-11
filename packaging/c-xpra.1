@@ -14,10 +14,11 @@ c-xpra \- minimal Xpra client written in C
 .B c-xpra
 connects to an Xpra server and shows the windows of a seamless session on the
 local X11 display with their icons and the application cursors, forwarding pointer and keyboard input to the server
-and ringing the local bell when the session rings its own.
+ringing the local bell when the session rings its own, and sharing the text of the
+CLIPBOARD and PRIMARY selections in both directions.
 Server lifecycle events and notifications are printed on standard output.
 .PP
-It implements only what is needed for that: there is no audio, clipboard,
+It implements only what is needed for that: there is no audio, image clipboard,
 system tray, file transfer or printing support, and
 pictures are received as raw pixels, optionally LZ4 compressed, and as png, webp or jpeg
 when libpng, libwebp or libturbojpeg is installed.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`c-xpra` is a minimal xpra client in C99. It shows the windows of an xpra session and shows the application cursors, forwards pointer and keyboard input and rings the bell, and nothing else. Its only dependencies are libc and libX11. Other libraries are optional and loaded with `dlopen`: `x11.c` uses libXcursor for colour cursors (falling back to black and white core cursors), and `pngdec.c` / `webp.c` / `jpeg.c` use libpng (`libpng16.so.16`) / libwebp (`libwebp.so.7`) / libturbojpeg (`libturbojpeg.so.0`) to decode `png` / `webp` / `jpeg` pictures, which are only advertised when the library loads. Window icons are always `png`, so they also need libpng. The goal is a very small, simple executable (~36 KB stripped, ~20 KB with UPX).
+`c-xpra` is a minimal xpra client in C99. It shows the windows of an xpra session and shows the application cursors, forwards pointer and keyboard input, rings the bell and shares the text clipboard, and nothing else. Its only dependencies are libc, libX11 and libXfixes (linked directly, for clipboard owner notifications). Other libraries are optional and loaded with `dlopen`: `x11.c` uses libXcursor for colour cursors (falling back to black and white core cursors), and `pngdec.c` / `webp.c` / `jpeg.c` use libpng (`libpng16.so.16`) / libwebp (`libwebp.so.7`) / libturbojpeg (`libturbojpeg.so.0`) to decode `png` / `webp` / `jpeg` pictures, which are only advertised when the library loads. Window icons are always `png`, so they also need libpng. The goal is a very small, simple executable (~52 KB stripped, ~26 KB with UPX).
 
 **Clean-room rule:** implement protocol behaviour ONLY from the xpra documentation in `~/projects/xpra/docs/`. Never read or copy the xpra source code. The most useful pages are:
 - `Porting/Minimal-Client.md`, `Porting/Handshake.md`, `Porting/Authentication.md` (with test vectors), `Porting/Transports.md`
@@ -73,11 +73,14 @@ The client is built in layers, from the bytes on the wire up to the native windo
    - `jpeg.c` uses the TurboJPEG 1.4 API (`tjDecompressHeader3` + `tjDecompress2` into our buffer), not the libjpeg `jpeg_*` API: its handle is opaque (no struct layouts, no `setjmp`) and its soname is the same on every distribution, whereas libjpeg is `.so.62` or `.so.8` with different struct sizes. A truncated or corrupt picture makes `tjDecompress2` fail, and the draw is acked with `-1`.
    - When the client accepts both, the server sends `webp` (lossless) rather than `png`. A picture may be smaller than the draw area (`scaled_size`): `blit()` in `client.c` upscales it, nearest neighbour.
 4. **`cursor.c`**: validates `cursor-data` packets (strict integer types, size at most `CURSOR_MAX`, hotspot inside the image, exactly `w*h*4` bytes) and converts the straight-alpha RGBA to premultiplied `0xAARRGGBB`. It is in `CORE`, so it is unit tested. An invalid packet restores the default cursor and logs a warning; it never disconnects.
-5. **`client.c`**: protocol state in a single global struct `C`.
+5. **`clipboard.c`**: validates `clipboard-contents` (text `data-type`, `data-format` 8, `bytes` wire encoding, at most `CLIP_MAX`) and converts between Latin-1 (`STRING`) and UTF-8. In `CORE`, unit tested.
+   - Not greedy: a local copy only sends a `clipboard-data` announcement (`claim`, `origin`); the contents travel on request.
+   - `x11.c` owns the selections with a hidden window on behalf of the server and parks each local `SelectionRequest` until `clipboard-contents` arrives. Requests in both directions time out after 2.5 s (`be_clipboard_timeout()` bounds the `poll()`). INCR transfers are not supported: they are refused.
+6. **`client.c`**: protocol state in a single global struct `C`.
    - The `HANDLERS[]` table maps packet names to handlers. Unknown packets are silently ignored.
    - Packets marked `needs_hello` are rejected before the server's hello arrives.
    - The client also implements the backend → client input callbacks (`client_on_*`).
-6. **`backend.h`**: the platform interface. `x11.c` is the only implementation today; GDI and Cocoa backends are expected later.
+7. **`backend.h`**: the platform interface. `x11.c` is the only implementation today; GDI and Cocoa backends are expected later.
    - Backends own the native windows and a backing store of native-endian `0x00RRGGBB` pixels.
    - They report input through the `client_on_*` callbacks declared in `backend.h`, using window-relative coordinates. The one exception is `client_on_configure`, which takes absolute coordinates.
    - The `MOD_*` bits follow the X11 modifier masks (shift, lock, control, mod1..mod5), so `x11.c` passes `state & 0xff` straight through.
@@ -90,6 +93,6 @@ Keep these true when changing anything:
 - **Coordinates:** everything is in server pixels. The hello sets `monitor-relative: false`, so positions are absolute. Pointer positions are the window's tracked server `x,y` plus the local event position.
 - **Configure echo:** `client_on_configure` compares the new geometry against the tracked geometry. This stops the client from echoing back moves and resizes the server itself requested.
 - **Acknowledgements:** every `window-draw` MUST get exactly one `window-ack`, including on failure (`-1` = decode error, `-2` = unknown window). Present the window only when `flush` is absent or 0.
-- **Advertised features:** the client advertises only `rgb` (`rgb24`/`rgb32`, raw or `rgb_lz4`), `png`, `png/P`, `png/L` (when libpng loads), `webp` (when libwebp loads), `jpeg` (when libturbojpeg loads), `png` window icons (when libpng loads, at most `ICON_MAX` pixels square), `raw` cursors, `hmac+sha256` authentication and the `rencodeplus` encoder. Adding an encoding or digest means implementing it, adding it to `send_hello`, and adding a unit test.
+- **Advertised features:** the client advertises only `rgb` (`rgb24`/`rgb32`, raw or `rgb_lz4`), `png`, `png/P`, `png/L` (when libpng loads), `webp` (when libwebp loads), `jpeg` (when libturbojpeg loads), `png` window icons (when libpng loads, at most `ICON_MAX` pixels square), `raw` cursors, text clipboard targets (`CLIP_TARGETS`, when XFixes is available), `hmac+sha256` authentication and the `rencodeplus` encoder. Adding an encoding or digest means implementing it, adding it to `send_hello`, and adding a unit test.
 - **Wheel:** use `pointer-wheel` only when the server's hello has `wheel.precise` or `wheel.emulation`. Otherwise send wheel buttons 4–7 as `pointer-button` press/release pairs.
 - **Disconnects:** the process exits 0 only for the "normal" `connection-close` reasons listed in Protocol.md §5.3, and 1 for anything else.

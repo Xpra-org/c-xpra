@@ -13,10 +13,10 @@ LDFLAGS ?= -Wl,-z,noseparate-code -Wl,--build-id=none
 REQ_CFLAGS = -std=c99 -Wall -Wextra -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L \
 	-fno-asynchronous-unwind-tables -fno-unwind-tables -ffunction-sections -fdata-sections
 REQ_LDFLAGS = -Wl,--gc-sections
-LIBS = -lX11
+LIBS = -lX11 -lXfixes
 # extra libraries, ie: LDLIBS=-ldl for dlopen before glibc 2.34 (see the RPM spec)
 
-CORE = src/buf.c src/rencode.c src/lz4.c src/sha256.c src/cursor.c src/pngdec.c src/webp.c src/jpeg.c
+CORE = src/buf.c src/rencode.c src/lz4.c src/sha256.c src/cursor.c src/clipboard.c src/pngdec.c src/webp.c src/jpeg.c
 SRCS = $(CORE) src/net.c src/client.c src/x11.c src/main.c
 TESTS = tests/test_core
 

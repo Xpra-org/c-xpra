@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "buf.h"
+#include "clipboard.h"
 #include "cursor.h"
 #include "lz4.h"
 #include "rencode.h"
@@ -561,6 +562,86 @@ static void test_webp(void)
 	free(px);
 }
 
+/* build ["clipboard-contents", 7, "CLIPBOARD", type, format, wire, data, 0] and validate it,
+ * returns the clip_contents result, the text is copied to out */
+static int contents_packet(const char *type, int format, const char *wire, const void *data, size_t len,
+			   size_t nitems, char *out, int *latin1)
+{
+	buf_t b = { 0 };
+	enc_list(&b, nitems);
+	enc_str(&b, "clipboard-contents");
+	enc_int(&b, 7);
+	enc_str(&b, "CLIPBOARD");
+	enc_str(&b, type);
+	enc_int(&b, format);
+	enc_str(&b, wire);
+	if (nitems > 6)
+		enc_bytes(&b, data, len);
+	if (nitems > 7)
+		enc_int(&b, 0);
+	rv *pk = rv_decode(b.data, b.len);
+	CHECK(pk != NULL);
+	const uint8_t *d = NULL;
+	size_t n = 0;
+	const char *err = NULL;
+	int r = clip_contents(pk, &d, &n, latin1, &err);
+	CHECK(r == 0 || err != NULL);
+	if (!r) {
+		memcpy(out, d, n);
+		out[n] = 0;
+	}
+	rv_free(pk);
+	buf_free(&b);
+	return r;
+}
+
+static void test_clipboard(void)
+{
+	char text[64];
+	int latin1 = -1;
+	CHECK(contents_packet("UTF8_STRING", 8, "bytes", "h\xc3\xa9", 3, 8, text, &latin1) == 0);
+	CHECK(!strcmp(text, "h\xc3\xa9") && latin1 == 0);
+	CHECK(contents_packet("STRING", 8, "bytes", "h\xe9", 2, 8, text, &latin1) == 0 && latin1 == 1);
+	CHECK(contents_packet("text/plain;charset=utf-8", 8, "bytes", "", 0, 8, text, &latin1) == 0);
+	/* not text, wrong format or wire encoding, truncated */
+	CHECK(contents_packet("image/png", 8, "bytes", "x", 1, 8, text, &latin1) < 0);
+	CHECK(contents_packet("UTF8_STRING", 32, "bytes", "x", 1, 8, text, &latin1) < 0);
+	CHECK(contents_packet("UTF8_STRING", 8, "integers", "x", 1, 8, text, &latin1) < 0);
+	CHECK(contents_packet("UTF8_STRING", 8, "bytes", "x", 1, 6, text, &latin1) < 0);
+	/* the size limit */
+	char *big = calloc(1, CLIP_MAX + 1);
+	CHECK(contents_packet("UTF8_STRING", 8, "bytes", big, CLIP_MAX + 1, 8, text, &latin1) < 0);
+	free(big);
+
+	/* selections */
+	buf_t b = { 0 };
+	enc_list(&b, 3);
+	enc_str(&b, "CLIPBOARD");
+	enc_str(&b, "PRIMARY");
+	enc_str(&b, "SECONDARY");
+	rv *sels = rv_decode(b.data, b.len);
+	CHECK(clip_selection(rv_list_get(sels, 0)) == SEL_CLIPBOARD);
+	CHECK(clip_selection(rv_list_get(sels, 1)) == SEL_PRIMARY);
+	CHECK(clip_selection(rv_list_get(sels, 2)) == -1);
+	CHECK(clip_selection(NULL) == -1);
+	CHECK(!strcmp(clip_selection_name(SEL_PRIMARY), "PRIMARY"));
+	rv_free(sels);
+	buf_free(&b);
+
+	/* Latin-1 <-> UTF-8 */
+	size_t n;
+	char *s = clip_latin1_to_utf8((const uint8_t *)"a\xe9\xff", 3, &n);
+	CHECK(s && n == 5 && !strcmp(s, "a\xc3\xa9\xc3\xbf"));
+	free(s);
+	s = clip_utf8_to_latin1((const uint8_t *)"a\xc3\xa9\xc3\xbf", 5, &n);
+	CHECK(s && n == 3 && !memcmp(s, "a\xe9\xff", 3));
+	free(s);
+	/* outside Latin-1 (euro sign, emoji), invalid and truncated sequences */
+	s = clip_utf8_to_latin1((const uint8_t *)"\xe2\x82\xac\xf0\x9f\x98\x80x\x80\xc3", 10, &n);
+	CHECK(s && n == 5 && !strcmp(s, "??x??"));
+	free(s);
+}
+
 int main(void)
 {
 	test_rencode_ints();
@@ -572,6 +653,7 @@ int main(void)
 	test_lz4();
 	test_sha256();
 	test_cursor();
+	test_clipboard();
 	test_png();
 	test_webp();
 	test_jpeg();

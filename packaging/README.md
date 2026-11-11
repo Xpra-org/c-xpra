@@ -63,7 +63,7 @@ rpmbuild --define "source_sha256 $(sha256sum ~/rpmbuild/SOURCES/c-xpra-0.1.1.tar
   python `xpra` package, and the two can be installed side by side.
 * **There is no desktop entry.** `c-xpra` has no connection dialog and needs a target
   argument, so a menu launcher would only print its usage.
-* The only runtime dependency is libX11, found by the automatic dependency generators
+* The only runtime dependencies are libX11 and libXfixes (clipboard), found by the automatic dependency generators
   (`dh_shlibdeps`, rpm's ELF dependency generator). libXcursor (colour cursors), libpng
   (`png` pictures and window icons), libwebp (`webp` pictures) and libturbojpeg (`jpeg` pictures) are optional and loaded with `dlopen`, so the generators do not see them:
   they are listed as `Recommends` instead. Package names vary by distribution and

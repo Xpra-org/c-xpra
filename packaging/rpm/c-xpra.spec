@@ -26,6 +26,7 @@ Source0:			%{url}/archive/refs/tags/v%{version}.tar.gz#/%{name}-%{version}.tar.g
 BuildRequires:		gcc
 BuildRequires:		make
 BuildRequires:		pkgconfig(x11)
+BuildRequires:		pkgconfig(xfixes)
 # loaded with dlopen, so the ELF dependency generator does not see them:
 # colour cursors, png pictures and window icons, webp pictures, jpeg pictures
 Recommends:			libXcursor%{?_isa}
@@ -41,8 +42,8 @@ Recommends:			turbojpeg%{?_isa}
 %description
 c-xpra is a minimal Xpra client: it connects to an Xpra server over TCP or a
 local socket and shows the windows of a seamless session on the local X11
-display, forwarding pointer and keyboard input and ringing the bell. It has no other dependency
-than libX11, and requires an Xpra 8.0 or later server.
+display, forwarding pointer and keyboard input, ringing the bell and sharing the text clipboard.
+It has no other dependency than libX11 and libXfixes, and requires an Xpra 8.0 or later server.
 
 
 %prep
